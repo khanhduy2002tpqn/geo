@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1780238988288,
+      "tag": "0000_faulty_scrambler",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1780241187039,
+      "tag": "0001_charming_kree",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1780243445830,
+      "tag": "0002_skinny_dark_beast",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1780246398251,
+      "tag": "0003_harsh_mockingbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1780759357570,
+      "tag": "0004_uneven_baron_zemo",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "name": "geogebra-voice-tutor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "cf:build": "opennextjs-cloudflare build",
+    "cf:preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "update-shapes": "node scripts/update-shapes-data.mjs",
+    "update-construction": "node scripts/update-construction-steps.mjs",
+    "update-experiments": "node scripts/update-experiments.mjs",
+    "update-lesson": "npx tsx scripts/update-lesson-content.ts",
+    "update-objects": "npx tsx scripts/update-object-descriptions.ts",
+    "update-cap2": "node scripts/update-cap2-shapes.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "tsx --env-file=.env.local scripts/seed-shapes.ts",
+    "db:seed-showcase": "tsx --env-file=.env.local scripts/seed-showcase-params.ts"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.17.3",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
+    "@types/katex": "^0.16.8",
+    "drizzle-orm": "^0.45.2",
+    "html-to-image": "^1.11.13",
+    "jszip": "^3.10.1",
+    "katex": "^0.17.0",
+    "next": "^15.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "three": "^0.184.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@opennextjs/cloudflare": "^1.19.11",
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/jszip": "^3.4.1",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/three": "^0.184.1",
+    "drizzle-kit": "^0.31.10",
+    "tailwindcss": "^4.0.0",
+    "tsx": "^4.22.3",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8",
+    "wrangler": "^4.95.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

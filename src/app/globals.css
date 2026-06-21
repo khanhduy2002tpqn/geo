@@ -1,0 +1,130 @@
+@import 'tailwindcss';
+
+:root {
+  /* Calm, classroom-friendly palette — warm paper + chalk-blue accent. */
+  --color-paper: oklch(98.5% 0.008 95);
+  --color-ink: oklch(28% 0.03 260);
+  --color-chalk: oklch(62% 0.16 245);
+  --color-chalk-deep: oklch(48% 0.17 255);
+  --color-mint: oklch(75% 0.13 165);
+  --color-amber: oklch(82% 0.14 75);
+
+  --radius-card: 1.25rem;
+  --shadow-soft: 0 10px 40px -12px oklch(40% 0.05 260 / 0.35);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html,
+body {
+  height: 100%;
+  font-size: 112.5%; /* 18px base — scales all rem values up */
+}
+
+body {
+  background:
+    radial-gradient(120% 100% at 50% 0%, oklch(99% 0.01 95) 0%, oklch(96% 0.02 240 / 0.6) 100%);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+.ggb-host {
+  width: 100%;
+  height: 100%;
+  min-height: clamp(480px, calc(100dvh - 160px), 900px);
+  border-radius: calc(var(--radius-card) - 0.5rem);
+  overflow: hidden;
+}
+
+.ggb-host > *,
+.ggb-host iframe {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Tutor "speaking" indicator orb. */
+.tutor-orb {
+  display: inline-block;
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 999px;
+  background: var(--color-mint);
+  box-shadow: 0 0 0 0 oklch(75% 0.13 165 / 0.6);
+}
+
+.tutor-orb.is-speaking {
+  animation: orb-pulse 1.4s var(--ease-out-expo) infinite;
+}
+
+@keyframes orb-pulse {
+  0% {
+    transform: scale(0.85);
+    box-shadow: 0 0 0 0 oklch(75% 0.13 165 / 0.55);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0.65rem oklch(75% 0.13 165 / 0);
+  }
+  100% {
+    transform: scale(0.85);
+    box-shadow: 0 0 0 0 oklch(75% 0.13 165 / 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Dark thin scrollbar for all scrollable panels */
+.overflow-y-auto,
+.overflow-x-auto,
+.overflow-auto {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;
+}
+
+.overflow-y-auto::-webkit-scrollbar,
+.overflow-x-auto::-webkit-scrollbar,
+.overflow-auto::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-track,
+.overflow-x-auto::-webkit-scrollbar-track,
+.overflow-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb,
+.overflow-x-auto::-webkit-scrollbar-thumb,
+.overflow-auto::-webkit-scrollbar-thumb {
+  background-color: #334155;
+  border-radius: 9999px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb:hover,
+.overflow-x-auto::-webkit-scrollbar-thumb:hover,
+.overflow-auto::-webkit-scrollbar-thumb:hover {
+  background-color: #475569;
+}
+
+/* Tab panel slide transitions */
+@keyframes slideInFromRight {
+  from { transform: translateX(40px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes slideInFromLeft {
+  from { transform: translateX(-40px); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
+}
+.tab-slide-right {
+  animation: slideInFromRight 220ms var(--ease-out-expo) both;
+}
+.tab-slide-left {
+  animation: slideInFromLeft 220ms var(--ease-out-expo) both;
+}

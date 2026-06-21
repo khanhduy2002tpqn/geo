@@ -1,0 +1,1 @@
+ALTER TABLE `geometry_shapes` ADD `visible` integer DEFAULT 1 NOT NULL;
