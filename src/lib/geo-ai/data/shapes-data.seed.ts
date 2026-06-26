@@ -1,6 +1,4 @@
-import type { ShapesDatabase } from './types'
-
-const shapesDatabase: ShapesDatabase = {
+const shapesDatabase = {
   "shapes": {
     "cylinder": {
       "nameVi": "Hình trụ",

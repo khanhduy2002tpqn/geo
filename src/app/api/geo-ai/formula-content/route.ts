@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { chatCompletionsUrl } from '@/lib/chatCompletionsUrl'
 import { z } from 'zod'
 
 export const runtime = 'nodejs'
@@ -82,7 +83,7 @@ async function callDeepSeek(shape: string, shapeName: string, params?: Record<st
   const userMessage = `Tạo nội dung học tập chi tiết cho: ${shapeName} (shape key: ${shape}). ${paramStr}
 Đảm bảo nội dung phù hợp chương trình Toán 12, chính xác và đủ chiều sâu.`
 
-  const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+  const res = await fetch(chatCompletionsUrl(baseUrl), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({

@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.8.0",
+  "engines": {
+    "node": ">=20 <25"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -21,9 +25,13 @@
     "update-objects": "npx tsx scripts/update-object-descriptions.ts",
     "update-cap2": "node scripts/update-cap2-shapes.mjs",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx --env-file=.env.local scripts/migrate.ts",
     "db:seed": "tsx --env-file=.env.local scripts/seed-shapes.ts",
-    "db:seed-showcase": "tsx --env-file=.env.local scripts/seed-showcase-params.ts"
+    "db:seed-showcase": "tsx --env-file=.env.local scripts/seed-showcase-params.ts",
+    "db:setup": "pnpm db:migrate && pnpm db:seed && pnpm db:seed-showcase",
+    "config:check": "tsx --env-file=.env.local scripts/check-env.ts",
+    "setup": "pnpm config:check && pnpm db:setup",
+    "check": "pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {
     "@libsql/client": "^0.17.3",
@@ -54,10 +62,5 @@
     "typescript": "^5.7.0",
     "vitest": "^2.1.8",
     "wrangler": "^4.95.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
   }
 }

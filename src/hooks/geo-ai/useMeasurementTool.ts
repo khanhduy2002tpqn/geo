@@ -23,6 +23,11 @@ export function useMeasurementTool() {
     })
   }, [requiredPoints])
 
+  const setSelectedPoints = useCallback((vertexIds: string[]) => {
+    setPoints(vertexIds.slice(0, requiredPoints))
+    setResult(null)
+  }, [requiredPoints])
+
   // Call this when positions are known to compute result
   const compute = useCallback((positions: Array<{ x: number; y: number; z: number }>) => {
     if (mode === 'distance' && positions.length === 2) {
@@ -67,7 +72,7 @@ export function useMeasurementTool() {
 
   return {
     mode, points, result, requiredPoints,
-    selectPoint, compute,
+    selectPoint, setSelectedPoints, compute,
     activateDistance, activateAngle, deactivate, clearPoints,
   }
 }

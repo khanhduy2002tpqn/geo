@@ -25,6 +25,8 @@ export interface GeometryFace {
   normal?: Vector3D
 }
 
+export type UnfoldMode = 'closed' | 'full' | 'strip'
+
 export interface SpecialPoint {
   id: string
   position: Vector3D

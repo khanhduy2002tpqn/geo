@@ -7,7 +7,7 @@ import { GeometryMesh } from './GeometryMesh'
 import { ShowcaseScene } from './ShowcaseScene'
 import { AxisSystem } from './AxisSystem'
 import { ViewerToolbar } from './ViewerToolbar'
-import type { GeometryModel } from '@/types/geo-ai'
+import type { GeometryModel, UnfoldMode } from '@/types/geo-ai'
 import type { ShowcaseItem } from '@/hooks/geo-ai/useShowcaseShapes'
 
 export interface Scene3DHandle {
@@ -21,6 +21,7 @@ interface Scene3DProps {
   selectedObjectId: string | null
   onObjectSelect: (id: string, type: 'vertex' | 'edge' | 'face') => void
   unfoldProgress: number
+  unfoldMode?: UnfoldMode
   containerId?: string
   stepHighlight?: { vertices: string[]; edges: string[]; faces: string[] }
   stepVisibility?: { vertices: string[]; edges: string[]; faces: string[] }
@@ -207,11 +208,67 @@ function ShowcaseAutoFit({ orbitRef }: { orbitRef: React.RefObject<OrbitControls
   return null
 }
 
+function UnfoldCamera({
+  model,
+  progress,
+  orbitRef,
+}: {
+  model: GeometryModel | null
+  progress: number
+  orbitRef: React.RefObject<OrbitControlsRef | null>
+}) {
+  const lastApplied = useRef(progress)
+
+  useEffect(() => {
+    lastApplied.current = progress
+  // Reset only when the selected model changes; progress changes are handled per frame.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model])
+
+  useFrame(() => {
+    const ctrl = orbitRef.current
+    if (!ctrl || !model || Math.abs(lastApplied.current - progress) < 0.0001) return
+    if (model.spec.shape !== 'cube' && model.spec.shape !== 'rectangular_prism') return
+
+    const points = Object.values(model.vertices).map(
+      (vertex) => new THREE.Vector3(vertex.position.x, vertex.position.y, vertex.position.z),
+    )
+    if (points.length === 0) return
+
+    const box = new THREE.Box3().setFromPoints(points)
+    const center = box.getCenter(new THREE.Vector3())
+    const size = box.getSize(new THREE.Vector3())
+    const maxSize = Math.max(size.x, size.y, size.z, 1)
+    const eased = progress < 0.5
+      ? 4 * progress * progress * progress
+      : 1 - Math.pow(-2 * progress + 2, 3) / 2
+    const closedPosition = new THREE.Vector3(
+      center.x + maxSize * 2.8,
+      center.y + maxSize * 2.2,
+      center.z + maxSize * 2.8,
+    )
+    const openPosition = new THREE.Vector3(center.x, center.y, center.z + maxSize * 6)
+    const camera = ctrl.object
+
+    camera.position.copy(closedPosition.lerp(openPosition, eased))
+    if (camera instanceof THREE.PerspectiveCamera) {
+      camera.fov = THREE.MathUtils.lerp(22, 42, eased)
+      camera.updateProjectionMatrix()
+    }
+    ctrl.target.copy(center)
+    ctrl.update()
+    lastApplied.current = progress
+  }, 1)
+
+  return null
+}
+
 export const Scene3D = forwardRef<Scene3DHandle, Scene3DProps>(function Scene3D({
   model,
   selectedObjectId,
   onObjectSelect,
   unfoldProgress,
+  unfoldMode = 'closed',
   containerId = CONTAINER_ID,
   stepHighlight,
   stepVisibility,
@@ -308,6 +365,8 @@ export const Scene3D = forwardRef<Scene3DHandle, Scene3DProps>(function Scene3D(
           enableRotate={!is2D}
         />
 
+        <UnfoldCamera model={model} progress={unfoldProgress} orbitRef={orbitRef} />
+
         {autoFit && <AutoFit model={model} orbitRef={orbitRef} />}
 
         <AxisSystem
@@ -338,6 +397,7 @@ export const Scene3D = forwardRef<Scene3DHandle, Scene3DProps>(function Scene3D(
             selectedObjectId={selectedObjectId}
             onObjectSelect={onObjectSelect}
             unfoldProgress={unfoldProgress}
+            unfoldMode={unfoldMode}
             stepHighlight={stepHighlight}
             stepVisibility={stepVisibility}
             waterLevel={waterLevel}

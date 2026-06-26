@@ -66,28 +66,36 @@ src/
 
 ## Installation
 
-Requires **Node ≥ 20** and **pnpm**.
+Use **Node 22 LTS** (the repository includes `.nvmrc`) and **pnpm 11.8.0**
+(pinned in `package.json`). Node 20–24 is accepted.
 
-```bash
+```powershell
+corepack enable
 pnpm install
-cp .env.example .env.local   # optional: add keys for AI + TTS
-pnpm dev                     # http://localhost:3000
+Copy-Item .env.example .env.local
 ```
 
-The app runs immediately with **no keys** (local templates, text-only). Add keys
-to unlock audio, AI, persistent cache, and the admin panel. All variables live in
-`.env.local` (copied from `.env.example`) and are **server-side only** — never
-prefix with `NEXT_PUBLIC_`.
+Add a Turso database URL and database auth token to `.env.local`, then bootstrap
+a new database and start the app:
+
+```powershell
+pnpm setup
+pnpm dev
+```
+
+Open `http://localhost:3000` for Geometry AI Studio, `/geo-v1` for the legacy
+GeoGebra tutor, or `/admin` for content management. All environment variables
+are server-side only; do not prefix them with `NEXT_PUBLIC_`.
 
 | Variable | Purpose | Without it |
 |----------|---------|------------|
 | `GOOGLE_TTS_API_KEY` | Vietnamese speech (vi-VN-Neural2-A) | Text-only, no audio |
-| `OPENROUTER_API_KEY` | AI explanations (legacy GeoGebra tutor) | Local templates only |
+| `OPENROUTER_API_KEY` | AI parsing, tutoring, and generated content | Local fallback where available |
 | `OPENROUTER_MODEL` | Model id (default `google/gemini-2.0-flash`) | — |
 | `OPENROUTER_BASE_URL` | API base url | Defaults to OpenRouter |
 | `TTS_VOICE` / `TTS_LANGUAGE` | Voice overrides | Defaults to vi-VN-Neural2-A |
-| `DEEPSEEK_API_KEY` | Geometry AI Studio (`/geo-ai`) prompt parser | Falls back to keyword templates |
-| `TURSO_URL` / `TURSO_AUTH_TOKEN` | Turso libSQL persistent geometry cache (L3) | Skips L3, uses memory + localStorage |
+| `DEEPSEEK_API_KEY` | Offline content-maintenance scripts | Runtime unaffected |
+| `TURSO_URL` / `TURSO_AUTH_TOKEN` | Shape library, examples, admin data, persistent cache | Main library is unavailable |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | HTTP Basic Auth for `/admin` panel | Admin panel inaccessible |
 
 ### Getting a Google TTS API key
@@ -102,11 +110,16 @@ prefix with `NEXT_PUBLIC_`.
 ## Scripts
 
 ```bash
-pnpm dev         # dev server
-pnpm build       # production build
-pnpm start       # run the production build
-pnpm typecheck   # tsc --noEmit
-pnpm test        # vitest (classification, templates, cache, orchestrator)
+pnpm dev              # development server
+pnpm setup            # validate env + migrate + seed a new database
+pnpm db:migrate       # apply migrations through the Turso HTTP driver
+pnpm db:seed          # import 34 shapes and 58 examples
+pnpm db:seed-showcase # tune the showcase models
+pnpm typecheck        # TypeScript validation
+pnpm test             # unit tests
+pnpm build            # production build
+pnpm check            # typecheck + test + build
+pnpm start            # run the production build
 ```
 
 ---

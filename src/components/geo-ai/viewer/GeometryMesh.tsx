@@ -2,7 +2,7 @@
 import { Line, Html } from '@react-three/drei'
 import { useRef, useMemo, useEffect, useCallback, createContext, useContext } from 'react'
 import * as THREE from 'three'
-import type { GeometryModel, GeometryVertex, GeometryFace } from '@/types/geo-ai'
+import type { GeometryModel, GeometryVertex, GeometryFace, UnfoldMode } from '@/types/geo-ai'
 import { ObjectLabel } from './ObjectLabel'
 
 // Shared accent color — set by GeometryMesh's Provider, consumed by sub-components
@@ -14,6 +14,7 @@ interface GeometryMeshProps {
   selectedObjectId: string | null
   onObjectSelect: (id: string, type: 'vertex' | 'edge' | 'face') => void
   unfoldProgress: number
+  unfoldMode?: UnfoldMode
   stepHighlight?: { vertices: string[]; edges: string[]; faces: string[] }
   stepVisibility?: { vertices: string[]; edges: string[]; faces: string[] }
   waterLevel?: number   // 0-1 experiment fill level
@@ -38,86 +39,130 @@ function toV3(v: { x: number; y: number; z: number }): THREE.Vector3 {
   return new THREE.Vector3(v.x, v.y, v.z)
 }
 
+function easeInOutCubic(value: number): number {
+  return value < 0.5
+    ? 4 * value * value * value
+    : 1 - Math.pow(-2 * value + 2, 3) / 2
+}
+
+type CuboidFaceRole = 'front' | 'right' | 'back' | 'left' | 'top' | 'bottom'
+
+function cuboidFaceRole(
+  face: GeometryFace,
+  allVertices: Record<string, GeometryVertex>,
+): CuboidFaceRole | null {
+  if (face.type === 'top') return 'top'
+  if (face.type === 'base') return 'bottom'
+
+  const positions = face.vertices.flatMap((id) => {
+    const vertex = allVertices[id]
+    return vertex ? [vertex.position] : []
+  })
+  if (positions.length < 3) return null
+
+  const all = Object.values(allVertices).map((vertex) => vertex.position)
+  const xMin = Math.min(...all.map((p) => p.x))
+  const xMax = Math.max(...all.map((p) => p.x))
+  const zMin = Math.min(...all.map((p) => p.z))
+  const zMax = Math.max(...all.map((p) => p.z))
+  const avgX = positions.reduce((sum, p) => sum + p.x, 0) / positions.length
+  const avgZ = positions.reduce((sum, p) => sum + p.z, 0) / positions.length
+
+  if (Math.abs(avgZ - zMin) <= Math.abs(avgX - xMax)
+    && Math.abs(avgZ - zMin) <= Math.abs(avgZ - zMax)
+    && Math.abs(avgZ - zMin) <= Math.abs(avgX - xMin)) return 'front'
+  if (Math.abs(avgX - xMax) <= Math.abs(avgZ - zMax)
+    && Math.abs(avgX - xMax) <= Math.abs(avgX - xMin)) return 'right'
+  if (Math.abs(avgZ - zMax) <= Math.abs(avgX - xMin)) return 'back'
+  return 'left'
+}
+
 /**
- * For the cube "cross net" unfold each face rotates outward from the base.
- * For all other shapes we simply lerp the vertices toward Y=0 (flatten).
+ * Reproduce the reference cuboid nets: four side faces form one connected
+ * horizontal strip in the order left-front-right-back; in the full net the
+ * top and bottom faces attach to the front face.
  */
-function unfoldedVertexPosition(
-  faceId: string,
+export function unfoldedVertexPosition(
+  face: GeometryFace,
   vertex: GeometryVertex,
   allVertices: Record<string, GeometryVertex>,
-  isCube: boolean,
+  mode: UnfoldMode,
   progress: number
 ): THREE.Vector3 {
   const original = toV3(vertex.position)
-  if (progress === 0) return original
+  if (progress <= 0 || mode === 'closed') return original
 
-  if (!isCube) {
-    // Simple flatten: lerp Y toward 0
-    return new THREE.Vector3(
-      original.x,
-      THREE.MathUtils.lerp(original.y, 0, progress),
-      original.z
+  const positions = Object.values(allVertices).map((v) => v.position)
+  const xMin = Math.min(...positions.map((p) => p.x))
+  const xMax = Math.max(...positions.map((p) => p.x))
+  const yMin = Math.min(...positions.map((p) => p.y))
+  const yMax = Math.max(...positions.map((p) => p.y))
+  const zMin = Math.min(...positions.map((p) => p.z))
+  const zMax = Math.max(...positions.map((p) => p.z))
+  const length = xMax - xMin
+  const width = zMax - zMin
+  const height = yMax - yMin
+  const centerX = (xMin + xMax) / 2
+  const centerY = (yMin + yMax) / 2
+  const centerZ = (zMin + zMax) / 2
+  const stripWidth = length * 2 + width * 2
+  const stripLeft = centerX - stripWidth / 2
+  const leftStart = stripLeft
+  const frontStart = leftStart + width
+  const rightStart = frontStart + length
+  const backStart = rightStart + width
+  const role = cuboidFaceRole(face, allVertices)
+
+  const targetFor = (point: THREE.Vector3): THREE.Vector3 => {
+    const target = point.clone()
+    switch (role) {
+      case 'front':
+        return target.set(frontStart + (point.x - xMin), centerY + (point.y - centerY), centerZ)
+      case 'right':
+        return target.set(rightStart + (point.z - zMin), centerY + (point.y - centerY), centerZ)
+      case 'back':
+        return target.set(backStart + (xMax - point.x), centerY + (point.y - centerY), centerZ)
+      case 'left':
+        return target.set(leftStart + (zMax - point.z), centerY + (point.y - centerY), centerZ)
+      case 'top':
+        return mode === 'full'
+          ? target.set(frontStart + (point.x - xMin), centerY + height / 2 + (point.z - zMin), centerZ)
+          : target
+      case 'bottom':
+        return mode === 'full'
+          ? target.set(frontStart + (point.x - xMin), centerY - height / 2 - (point.z - zMin), centerZ)
+          : target
+      default:
+        return target
+    }
+  }
+
+  const closedPoints = face.vertices.flatMap((id) => {
+    const item = allVertices[id]
+    return item ? [toV3(item.position)] : []
+  })
+  if (closedPoints.length < 3) return original
+  const openPoints = closedPoints.map(targetFor)
+  const closedCenter = closedPoints.reduce((sum, point) => sum.add(point), new THREE.Vector3()).multiplyScalar(1 / closedPoints.length)
+  const openCenter = openPoints.reduce((sum, point) => sum.add(point), new THREE.Vector3()).multiplyScalar(1 / openPoints.length)
+
+  const orientation = (points: THREE.Vector3[]): THREE.Quaternion => {
+    const xAxis = points[1]!.clone().sub(points[0]!).normalize()
+    const normal = points[1]!.clone().sub(points[0]!)
+      .cross(points[2]!.clone().sub(points[0]!))
+      .normalize()
+    const yAxis = normal.clone().cross(xAxis).normalize()
+    return new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(xAxis, yAxis, normal),
     )
   }
 
-  // Cube cross-net unfold:
-  // Identify which face this is and translate/rotate appropriately.
-  // Base face (bottom, y≈0) stays. Each lateral face unfolds outward.
-  const ys = Object.values(allVertices).map((v) => v.position.y)
-  const minY = Math.min(...ys)
-  const maxY = Math.max(...ys)
-  const midY = (minY + maxY) / 2
-
-  const faceVertexPositions = Object.values(allVertices).filter((v) =>
-    faceId.includes(v.id)
-  )
-  const avgY =
-    faceVertexPositions.reduce((s, v) => s + v.position.y, 0) /
-    Math.max(faceVertexPositions.length, 1)
-
-  // Top face: unfold over front edge
-  if (avgY > midY + 0.1) {
-    const flipped = new THREE.Vector3(original.x, minY, original.z + (maxY - minY))
-    return original.clone().lerp(flipped, progress)
-  }
-
-  // Bottom face (base): stays flat
-  if (avgY < midY - 0.1) {
-    return original.clone().lerp(new THREE.Vector3(original.x, minY, original.z - (maxY - minY)), progress)
-  }
-
-  // Side faces: unfold outward
-  const xs = faceVertexPositions.map((v) => v.position.x)
-  const zs = faceVertexPositions.map((v) => v.position.z)
-  const minX = Math.min(...xs)
-  const maxX = Math.max(...xs)
-  const minZ = Math.min(...zs)
-  const maxZ = Math.max(...zs)
-  const faceSize = maxY - minY
-
-  // Detect which side face by its dominant axis position
-  const avgX = (minX + maxX) / 2
-  const avgZ = (minZ + maxZ) / 2
-  const bound = faceSize / 2
-
-  let target = original.clone()
-
-  if (Math.abs(avgX - bound) < 0.1) {
-    // Right face
-    target = new THREE.Vector3(bound + (original.y - minY), minY, original.z)
-  } else if (Math.abs(avgX + bound) < 0.1) {
-    // Left face
-    target = new THREE.Vector3(-bound - (original.y - minY), minY, original.z)
-  } else if (Math.abs(avgZ - bound) < 0.1) {
-    // Front face
-    target = new THREE.Vector3(original.x, minY, bound + (original.y - minY))
-  } else if (Math.abs(avgZ + bound) < 0.1) {
-    // Back face
-    target = new THREE.Vector3(original.x, minY, -bound - (original.y - minY))
-  }
-
-  return original.clone().lerp(target, progress)
+  const eased = easeInOutCubic(progress)
+  const closedRotation = orientation(closedPoints)
+  const rotation = closedRotation.clone().slerp(orientation(openPoints), eased)
+  const local = original.clone().sub(closedCenter).applyQuaternion(closedRotation.clone().invert())
+  const center = closedCenter.clone().lerp(openCenter, eased)
+  return center.add(local.applyQuaternion(rotation))
 }
 
 // ---------------------------------------------------------------------------
@@ -140,18 +185,22 @@ function VertexSphere({ vertexId, position, selected, onObjectSelect, isStepHigh
   const color = selected ? '#fbbf24' : isMeasureSelected ? '#a78bfa' : isStepHighlight ? '#fb923c' : accentColor ?? '#38bdf8'
   const emissiveIntensity = selected ? 0.6 : isMeasureSelected ? 0.7 : isStepHighlight ? 1.0 : 0.25
 
+  const handleClick = (event: { stopPropagation: () => void }) => {
+    event.stopPropagation()
+    onObjectSelect(vertexId, 'vertex')
+  }
+
   return (
-    <mesh
-      ref={meshRef}
-      position={position}
-      onClick={(e) => {
-        e.stopPropagation()
-        onObjectSelect(vertexId, 'vertex')
-      }}
-    >
-      <sphereGeometry args={[radius, 16, 16]} />
-      <meshStandardMaterial color={color} emissive={color} emissiveIntensity={emissiveIntensity} roughness={0.3} metalness={0.4} />
-    </mesh>
+    <group position={position}>
+      <mesh ref={meshRef} onClick={handleClick}>
+        <sphereGeometry args={[radius, 16, 16]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={emissiveIntensity} roughness={0.3} metalness={0.4} />
+      </mesh>
+      <mesh onClick={handleClick}>
+        <sphereGeometry args={[radius * 3.2, 12, 12]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
+    </group>
   )
 }
 
@@ -163,9 +212,21 @@ interface FaceMeshProps {
   isStepHighlight?: boolean
   depthMask?: boolean
   visibleFace?: boolean
+  opacity?: number
+  showOutline?: boolean
 }
 
-function FaceMesh({ faceId, positions, selected, onObjectSelect, isStepHighlight, depthMask = false, visibleFace = true }: FaceMeshProps) {
+function FaceMesh({
+  faceId,
+  positions,
+  selected,
+  onObjectSelect,
+  isStepHighlight,
+  depthMask = false,
+  visibleFace = true,
+  opacity = 1,
+  showOutline = false,
+}: FaceMeshProps) {
   const accentColor = useContext(AccentColorContext)
   const geometry = useMemo(() => {
     if (positions.length < 3) return null
@@ -207,7 +268,7 @@ function FaceMesh({ faceId, positions, selected, onObjectSelect, isStepHighlight
 
   if (!geometry) return null
 
-  const opacity = selected ? 0.5 : isStepHighlight ? 0.65 : 0.22
+  const materialOpacity = (selected ? 0.5 : isStepHighlight ? 0.65 : 0.22) * opacity
   const color = selected ? '#7dd3fc' : isStepHighlight ? '#fbbf24' : accentColor ?? '#0ea5e9'
 
   return (
@@ -230,11 +291,22 @@ function FaceMesh({ faceId, positions, selected, onObjectSelect, isStepHighlight
             emissive={isStepHighlight ? '#d97706' : undefined}
             emissiveIntensity={isStepHighlight ? 0.3 : 0}
             transparent
-            opacity={opacity}
+            opacity={materialOpacity}
             side={THREE.DoubleSide}
             depthWrite={false}
           />
         </mesh>
+      )}
+      {showOutline && opacity > 0.02 && positions.length >= 3 && (
+        <Line
+          points={[...positions, positions[0]!]}
+          color={selected ? '#f59e0b' : accentColor ?? '#67e8f9'}
+          lineWidth={selected ? 3 : 1.5}
+          transparent
+          opacity={opacity}
+          depthTest={false}
+          renderOrder={2}
+        />
       )}
     </group>
   )
@@ -761,6 +833,7 @@ export function GeometryMesh({
   selectedObjectId,
   onObjectSelect,
   unfoldProgress,
+  unfoldMode = 'closed',
   stepHighlight,
   stepVisibility,
   waterLevel = 0,
@@ -802,7 +875,9 @@ export function GeometryMesh({
     spec.shape === 'hyperboloid' ||
     spec.shape === 'paraboloid'
 
-  const isCube = spec.shape === 'cube'
+  const isCuboid = spec.shape === 'cube' || spec.shape === 'rectangular_prism'
+  const isUnfolding = isCuboid && (unfoldMode !== 'closed' || unfoldProgress > 0.001)
+  const unfoldedAmount = easeInOutCubic(unfoldProgress)
 
   // Change the canvas cursor when in measurement mode so the user knows
   // click targets are being collected for distance / angle calculations.
@@ -837,18 +912,14 @@ export function GeometryMesh({
       for (const vId of face.vertices) {
         const vertex = vertices[vId]
         if (!vertex) continue
-        result[face.id]![vId] = unfoldedVertexPosition(
-          face.id,
-          vertex,
-          vertices,
-          isCube,
-          unfoldProgress
-        )
+        result[face.id]![vId] = isCuboid
+          ? unfoldedVertexPosition(face, vertex, vertices, unfoldMode, unfoldProgress)
+          : toV3(vertex.position)
       }
     }
 
     return result
-  }, [faces, vertices, isCube, unfoldProgress])
+  }, [faces, vertices, isCuboid, unfoldMode, unfoldProgress])
 
   // Stable per-face position arrays — computed once per computedPositions change,
   // not inline in map() which would create new references on every render.
@@ -885,6 +956,49 @@ export function GeometryMesh({
     }
     return result
   }, [vertices, faces, computedPositions, unfoldProgress])
+
+  const unfoldedVertexItems = useMemo(() => {
+    if (!isUnfolding || !showLabels) return []
+
+    const items: Array<{ key: string; vertexId: string; position: THREE.Vector3 }> = []
+    const seen = new Set<string>()
+    const coordKey = (value: number) => Math.round(value * 10000) / 10000
+
+    for (const face of faces) {
+      if (stepVisibility && !stepVisibility.faces.includes(face.id)) continue
+      const isCap = face.type === 'base' || face.type === 'top'
+      const faceOpacity = unfoldMode === 'strip' && isCap ? 1 - unfoldedAmount : 1
+      if (faceOpacity <= 0.15) continue
+
+      for (const vertexId of face.vertices) {
+        if (stepVisibility && !stepVisibility.vertices.includes(vertexId)) continue
+        const vertex = vertices[vertexId]
+        const position = computedPositions[face.id]?.[vertexId]
+        if (!vertex?.label || !position) continue
+
+        const key = [
+          vertexId,
+          coordKey(position.x),
+          coordKey(position.y),
+          coordKey(position.z),
+        ].join(':')
+        if (seen.has(key)) continue
+        seen.add(key)
+        items.push({ key, vertexId, position })
+      }
+    }
+
+    return items
+  }, [
+    isUnfolding,
+    showLabels,
+    faces,
+    stepVisibility,
+    unfoldMode,
+    unfoldedAmount,
+    vertices,
+    computedPositions,
+  ])
 
   // Adaptive node radius — scales with bounding box so nodes look right at any shape size.
   const nodeRadius = useMemo(() => {
@@ -1176,9 +1290,11 @@ export function GeometryMesh({
     <AccentColorContext.Provider value={accentColor}>
     <group onPointerEnter={handlePointerEnter} onPointerLeave={handlePointerLeave}>
       {/* Faces — render when visible OR when depth mask needed for hidden edges / 2D mode */}
-      {(showFaces || hiddenEdges || is2D) && faces.map((face) => {
+      {(showFaces || hiddenEdges || is2D || isUnfolding) && faces.map((face) => {
         if (stepVisibility && !stepVisibility.faces.includes(face.id)) return null
         const facePositions = facePositionArrays[face.id] ?? []
+        const isCap = face.type === 'base' || face.type === 'top'
+        const faceOpacity = unfoldMode === 'strip' && isCap ? 1 - unfoldedAmount : 1
         return (
           <group key={face.id}>
             <FaceMesh
@@ -1187,19 +1303,43 @@ export function GeometryMesh({
               selected={selectedObjectId === face.id}
               onObjectSelect={onObjectSelect}
               isStepHighlight={stepHighlight?.faces.includes(face.id) ?? false}
-              depthMask={hiddenEdges || is2D}
-              visibleFace={showFaces}
+              depthMask={!isUnfolding && (hiddenEdges || is2D)}
+              visibleFace={showFaces || isUnfolding}
+              opacity={faceOpacity}
+              showOutline={isUnfolding}
             />
-            {is2D && face.type === 'base' && <BaseHatching positions={facePositions} />}
+            {!isUnfolding && is2D && face.type === 'base' && <BaseHatching positions={facePositions} />}
+          </group>
+        )
+      })}
+
+      {isUnfolding && unfoldedVertexItems.map(({ key, vertexId, position }) => {
+        const labelPosition = { x: position.x, y: position.y, z: position.z }
+        return (
+          <group key={key}>
+            <VertexSphere
+              vertexId={vertexId}
+              position={position}
+              selected={selectedObjectId === vertexId}
+              onObjectSelect={onObjectSelect}
+              isStepHighlight={false}
+              isMeasureSelected={measurementPoints.includes(vertexId)}
+              radius={nodeRadius * 0.7}
+            />
+            <ObjectLabel
+              id={vertexId}
+              position={labelPosition}
+              selected={selectedObjectId === vertexId}
+            />
           </group>
         )
       })}
 
       {/* Water fill — experiment mode fill level */}
-      <WaterFill3D model={model} waterLevel={waterLevel} />
+      {!isUnfolding && <WaterFill3D model={model} waterLevel={waterLevel} />}
 
       {/* Edges */}
-      {edges.map((edge) => {
+      {!isUnfolding && edges.map((edge) => {
         if (stepVisibility && !stepVisibility.edges.includes(edge.id)) return null
         const fromPos = flatVertexPositions[edge.from]
         const toPos = flatVertexPositions[edge.to]
@@ -1222,6 +1362,17 @@ export function GeometryMesh({
               onObjectSelect(edge.id, 'edge')
             }}
           >
+            {!isRadius && (
+              <Line
+                points={[fromPos, toPos]}
+                color="#ffffff"
+                lineWidth={Math.max(10, edgeWidth * 6)}
+                transparent
+                opacity={0}
+                depthTest={false}
+                renderOrder={3}
+              />
+            )}
             {isRadius ? (
               <Line
                 points={[fromPos, toPos]}
@@ -1284,7 +1435,7 @@ export function GeometryMesh({
       })}
 
       {/* Vertices */}
-      {Object.entries(vertices).map(([id, v]) => {
+      {!isUnfolding && Object.entries(vertices).map(([id, v]) => {
         if (stepVisibility && !stepVisibility.vertices.includes(id)) return null
         if (!v.label) return null // skip virtual reference points (e.g. height foot O)
         const pos = flatVertexPositions[id] ?? toV3(v.position)
@@ -1312,7 +1463,7 @@ export function GeometryMesh({
       })}
 
       {/* Special points */}
-      {specialPoints.map((sp) => {
+      {!isUnfolding && specialPoints.map((sp) => {
         if (stepVisibility && !stepVisibility.vertices.includes(sp.id)) return null
         const pos = toV3(sp.position)
         return (

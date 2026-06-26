@@ -75,8 +75,8 @@ export function MeasurementPanel({
           {remaining > 0 && (
             <p className="text-xs text-slate-500">
               {mode === 'distance'
-                ? 'Nhấp vào 2 đỉnh để đo khoảng cách.'
-                : 'Nhấp vào 3 đỉnh. Góc tính tại đỉnh thứ 2.'}
+                ? 'Nhấp một cạnh hoặc chọn 2 đỉnh để đo.'
+                : 'Nhấp 2 cạnh chung đỉnh hoặc chọn 3 đỉnh. Góc tính tại đỉnh giữa.'}
             </p>
           )}
 

@@ -6,6 +6,8 @@
  * for JSON extraction via intentParser.ts.
  */
 
+import { chatCompletionsUrl } from '@/lib/chatCompletionsUrl'
+
 const DEFAULT_BASE_URL = 'https://api.deepseek.com'
 const DEFAULT_MODEL = 'deepseek-chat'
 const MAX_TOKENS = 2000
@@ -122,7 +124,7 @@ export async function callDeepSeek(userPrompt: string, signal?: AbortSignal): Pr
   }
   const baseUrl = process.env.OPENROUTER_BASE_URL ?? DEFAULT_BASE_URL
   const model = process.env.OPENROUTER_MODEL ?? DEFAULT_MODEL
-  const endpoint = `${baseUrl}/v1/chat/completions`
+  const endpoint = chatCompletionsUrl(baseUrl)
 
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
   const composedSignal = signal ? combineSignals([signal, timeout]) : timeout

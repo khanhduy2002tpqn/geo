@@ -25,6 +25,52 @@ export const geometryExamples = sqliteTable('geometry_examples', {
 export type GeometryExampleRow = typeof geometryExamples.$inferSelect
 export type GeometryExampleInsert = typeof geometryExamples.$inferInsert
 
+// ── Learning accounts, teacher-authored exercises, and student results ─────
+
+export const learningUsers = sqliteTable('learning_users', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  role: text('role').notNull(), // 'teacher' | 'student'
+  createdAt: integer('created_at').default(sql`(unixepoch())`).notNull(),
+})
+
+export const teacherExercises = sqliteTable('teacher_exercises', {
+  id: text('id').primaryKey(),
+  teacherId: text('teacher_id')
+    .notNull()
+    .references(() => learningUsers.id, { onDelete: 'cascade' }),
+  shapeKey: text('shape_key').notNull(),
+  title: text('title').notNull(),
+  questionType: text('question_type').notNull(), // 'choice' | 'blank'
+  prompt: text('prompt').notNull(),
+  options: text('options'), // JSON string[] | null
+  answer: text('answer').notNull(),
+  topic: text('topic').notNull(), // recognition|objects|formulas|self|custom
+  createdAt: integer('created_at').default(sql`(unixepoch())`).notNull(),
+})
+
+export const studentSubmissions = sqliteTable('student_submissions', {
+  id: text('id').primaryKey(),
+  studentId: text('student_id')
+    .notNull()
+    .references(() => learningUsers.id, { onDelete: 'cascade' }),
+  shapeKey: text('shape_key').notNull(),
+  source: text('source').notNull(), // 'lesson_practice' | 'teacher_exercise'
+  exerciseId: text('exercise_id'),
+  score: integer('score').notNull(),
+  total: integer('total').notNull(),
+  weakTopics: text('weak_topics').notNull(), // JSON string[]
+  answers: text('answers').notNull(), // JSON payload
+  selfAssessment: text('self_assessment'),
+  createdAt: integer('created_at').default(sql`(unixepoch())`).notNull(),
+})
+
+export type LearningUserRow = typeof learningUsers.$inferSelect
+export type TeacherExerciseRow = typeof teacherExercises.$inferSelect
+export type StudentSubmissionRow = typeof studentSubmissions.$inferSelect
+
 // ── Shape library (persisted geometry shapes) ──────────────────────────────
 // 1 row per library shape + normalized related tables. Source of truth for the
 // runtime shape library (replaces static shapes-data.ts, which becomes an

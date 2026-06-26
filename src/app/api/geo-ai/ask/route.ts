@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { chatCompletionsUrl } from '@/lib/chatCompletionsUrl'
 import { z } from 'zod'
 import { logger } from '@/lib/logger'
 import { LruCache } from '@/services/cache/memoryCache'
@@ -160,7 +161,7 @@ async function askDeepSeek(
 ): Promise<string> {
   const baseUrl = process.env.OPENROUTER_BASE_URL ?? DEFAULT_AI_BASE_URL
   const model = process.env.OPENROUTER_MODEL ?? DEFAULT_AI_MODEL
-  const endpoint = `${baseUrl}/v1/chat/completions`
+  const endpoint = chatCompletionsUrl(baseUrl)
 
   const userMessage = [
     `Hình: ${shape}`,

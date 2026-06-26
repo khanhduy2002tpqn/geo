@@ -18,6 +18,7 @@ import { RECTANGULAR_PRISM_VOLUME_EXPERIMENT } from '@/lib/geo-ai/experiments/re
 import { TRIANGULAR_PRISM_VOLUME_EXPERIMENT } from '@/lib/geo-ai/experiments/triangularPrismVolume'
 import { PYRAMID_VOLUME_EXPERIMENT } from '@/lib/geo-ai/experiments/pyramidVolume'
 import { GeometryEngine } from '@/lib/geo-ai/geometry-engine'
+import { edgeExplanation, measuredEdgeExplanation } from '@/lib/geo-ai/speech/edgeExplanation'
 import { getShape } from '@/lib/geo-ai/data'
 import type { ExampleDef } from '@/lib/geo-ai/data/types'
 import { useShapeData, useExamples } from '@/hooks/geo-ai/useShapeData'
@@ -36,7 +37,7 @@ import VirtualExperiment from './educational/VirtualExperiment'
 import { DisplaySettingsPanel } from '@/components/geo-ai/viewer/DisplaySettings'
 import { GeometryInfoPanel } from '@/components/geo-ai/viewer/GeometryInfoPanel'
 import { MeasurementPanel } from '@/components/geo-ai/viewer/MeasurementPanel'
-import type { GeometryModel, GeometrySpec, StepVisibility } from '@/types/geo-ai'
+import type { GeometryModel, GeometrySpec, StepVisibility, UnfoldMode } from '@/types/geo-ai'
 import type { VirtualExperiment as VirtualExperimentType } from '@/types/geo-ai'
 
 const Scene3D = dynamic(
@@ -51,7 +52,32 @@ const Scene3D = dynamic(
   },
 )
 
+const PracticePanel = dynamic(
+  () => import('./educational/PracticePanel').then((m) => ({ default: m.PracticePanel })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full items-center justify-center bg-slate-950 text-slate-400">
+        Đang tải bài tập...
+      </div>
+    ),
+  },
+)
+
+const TeacherWorkspacePanel = dynamic(
+  () => import('./educational/FormulaDiscovery').then((m) => ({ default: m.TeacherWorkspace })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full items-center justify-center bg-slate-950 text-slate-400">
+        Đang tải quản lý bài tập...
+      </div>
+    ),
+  },
+)
+
 type Mode = 'explore' | 'construct' | 'experiment' | 'qa' | 'info' | 'measure'
+type ConstructSection = 'shape' | 'formula' | null
 
 // Max time to hold the deep-link loading state while waiting for the
 // examples catalog before falling back to the homepage.
@@ -82,10 +108,10 @@ function buildObjectExplanation(
     return rich ?? `Đây là đỉnh ${id}.`
   }
   if (type === 'edge') {
-    const rich = objDesc?.edges?.[id]
-    if (rich) return rich
     const edge = model.edges.find((e) => e.id === id)
-    return edge ? `Đây là cạnh ${edge.from}${edge.to}.` : `Đây là cạnh ${id}.`
+    return edge
+      ? edgeExplanation(edge, model.spec.params.unit)
+      : objDesc?.edges?.[id] ?? `Đây là cạnh ${id}.`
   }
   if (type === 'face') {
     const rich = objDesc?.faces?.[id]
@@ -110,6 +136,141 @@ function getExperiment(shape: string | undefined): VirtualExperimentType | null 
   return null
 }
 
+function FormulaConstructionCard({
+  model,
+  params,
+  canUnfold,
+  is2D,
+  unfoldMode,
+  onUnfoldFull,
+  onUnfoldStrip,
+  onFold,
+}: {
+  model: GeometryModel
+  params: Record<string, number | undefined>
+  canUnfold: boolean
+  is2D: boolean
+  unfoldMode: UnfoldMode
+  onUnfoldFull: () => void
+  onUnfoldStrip: () => void
+  onFold: () => void
+}) {
+  const shape = model.spec.shape
+  if (shape !== 'cube' && shape !== 'rectangular_prism') return null
+
+  const unit = model.spec.params.unit ?? 'cm'
+  const a = params.a ?? model.spec.params.a
+  const b = params.b ?? model.spec.params.b
+  const h = params.h ?? model.spec.params.h
+  const isCube = shape === 'cube'
+  const squareUnit = unit ? `${unit}²` : 'đv²'
+  const format = (value: number | undefined) => (
+    typeof value === 'number' && Number.isFinite(value)
+      ? value.toLocaleString('vi-VN', { maximumFractionDigits: 3 })
+      : '?'
+  )
+
+  const lateralFormula = isCube
+    ? 'Sxq = 4a²'
+    : 'Sxq = 2(a + b)h'
+  const totalFormula = isCube
+    ? 'Stp = 6a²'
+    : 'Stp = Sxq + 2ab = 2(ab + ah + bh)'
+  const lateralValue = isCube && typeof a === 'number'
+    ? 4 * a * a
+    : !isCube && typeof a === 'number' && typeof b === 'number' && typeof h === 'number'
+      ? 2 * (a + b) * h
+      : undefined
+  const totalValue = isCube && typeof a === 'number'
+    ? 6 * a * a
+    : !isCube && typeof a === 'number' && typeof b === 'number' && typeof h === 'number'
+      ? 2 * (a * b + a * h + b * h)
+      : undefined
+
+  return (
+    <section className="rounded-2xl border border-indigo-500/25 bg-indigo-950/20 p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-white">2. Xây dựng công thức</h3>
+          <p className="mt-1 text-xs leading-relaxed text-slate-400">
+            Trải hình để nhìn các mặt, sau đó cộng diện tích các phần bằng nhau.
+          </p>
+        </div>
+        <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[11px] font-medium text-indigo-200">
+          Sxq / Stp
+        </span>
+      </div>
+
+      {canUnfold && (
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {unfoldMode === 'closed' ? (
+            <>
+              <button
+                type="button"
+                disabled={is2D}
+                onClick={onUnfoldFull}
+                className="rounded-lg border border-slate-700 bg-slate-950/70 px-2 py-2 text-xs font-medium text-slate-100 transition hover:border-indigo-400 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                Tách 6 mặt
+              </button>
+              <button
+                type="button"
+                disabled={is2D}
+                onClick={onUnfoldStrip}
+                className="rounded-lg border border-slate-700 bg-slate-950/70 px-2 py-2 text-xs font-medium text-slate-100 transition hover:border-indigo-400 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                Trải mặt bên
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={onFold}
+              className="col-span-2 rounded-lg border border-indigo-400/60 bg-indigo-600/80 px-2 py-2 text-xs font-semibold text-white transition hover:bg-indigo-500"
+            >
+              Ghép lại hình
+            </button>
+          )}
+        </div>
+      )}
+
+      {is2D && (
+        <p className="mt-2 text-[11px] text-amber-300">
+          Tắt chế độ 2D để dùng trải phẳng.
+        </p>
+      )}
+
+      <div className="mt-3 space-y-2 text-xs leading-relaxed text-slate-300">
+        <div className="rounded-xl bg-slate-950/55 p-2">
+          <p className="font-medium text-slate-100">1. Diện tích xung quanh</p>
+          <p className="mt-1">
+            {isCube
+              ? 'Có 4 mặt bên là 4 hình vuông cạnh a.'
+              : 'Bốn mặt bên tạo thành một hình chữ nhật lớn có chiều dài 2(a + b), chiều rộng h.'}
+          </p>
+          <p className="mt-1 font-mono text-indigo-200">{lateralFormula}</p>
+          {lateralValue !== undefined && (
+            <p className="mt-1 text-emerald-300">= {format(lateralValue)} {squareUnit}</p>
+          )}
+        </div>
+
+        <div className="rounded-xl bg-slate-950/55 p-2">
+          <p className="font-medium text-slate-100">2. Diện tích toàn phần</p>
+          <p className="mt-1">
+            {isCube
+              ? 'Toàn phần gồm 6 mặt vuông bằng nhau.'
+              : 'Toàn phần bằng diện tích xung quanh cộng thêm hai mặt đáy.'}
+          </p>
+          <p className="mt-1 font-mono text-indigo-200">{totalFormula}</p>
+          {totalValue !== undefined && (
+            <p className="mt-1 text-emerald-300">= {format(totalValue)} {squareUnit}</p>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 export function GeoAIStudio() {
   const [showAllSteps, setShowAllSteps] = useState(false)
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null)
@@ -119,8 +280,13 @@ export function GeoAIStudio() {
   const [mode, setMode] = useState<Mode>('explore')
   const [slideDir, setSlideDir] = useState<'right' | 'left'>('right')
   const [animKey, setAnimKey] = useState(0)
+  const [centerPanel, setCenterPanel] = useState<'practice' | 'teacher-workspace' | null>(null)
+  const [unfoldMode, setUnfoldMode] = useState<UnfoldMode>('closed')
+  const [activeUnfoldMode, setActiveUnfoldMode] = useState<Exclude<UnfoldMode, 'closed'>>('full')
   const [unfoldProgress, setUnfoldProgress] = useState(0)
+  const unfoldProgressRef = useRef(0)
   const [isStepPlaying, setIsStepPlaying] = useState(false)
+  const [constructSection, setConstructSection] = useState<ConstructSection>(null)
   const [isAutoRotating, setIsAutoRotating] = useState(false)
   const [activeExample, setActiveExample] = useState<ExampleDef | null>(null)
   const [is2D, setIs2D] = useState(false)
@@ -131,8 +297,39 @@ export function GeoAIStudio() {
   const [isDeepLinkPending, setIsDeepLinkPending] = useState(() => Boolean(exampleParam))
   const examples = useExamples()
   const showcaseItems = useShowcaseShapes()
-
   const { model, loading: isResolving, resolve, setModel } = useGeoAICache()
+
+  useEffect(() => {
+    if (unfoldMode !== 'closed') setActiveUnfoldMode(unfoldMode)
+
+    const from = unfoldProgressRef.current
+    const target = unfoldMode === 'closed' ? 0 : 1
+    if (Math.abs(target - from) < 0.001) return
+
+    const startedAt = performance.now()
+    const duration = 1400 * Math.abs(target - from)
+    let frame = 0
+
+    const animate = (now: number) => {
+      const elapsed = Math.min(1, (now - startedAt) / duration)
+      const next = from + (target - from) * elapsed
+      unfoldProgressRef.current = next
+      setUnfoldProgress(next)
+      if (elapsed < 1) frame = requestAnimationFrame(animate)
+    }
+
+    frame = requestAnimationFrame(animate)
+    return () => cancelAnimationFrame(frame)
+  }, [unfoldMode])
+
+  useEffect(() => {
+    unfoldProgressRef.current = 0
+    setUnfoldProgress(0)
+    setUnfoldMode('closed')
+    setActiveUnfoldMode('full')
+    setConstructSection(null)
+  }, [model])
+
   // Refresh the active shape's data from Turso (hydrates the sync registry so
   // getShape(...) below returns Turso values; re-renders on arrival).
   useShapeData(model?.spec.shape)
@@ -143,6 +340,38 @@ export function GeoAIStudio() {
   const scene3dRef = useRef<Scene3DHandle>(null)
   const pre2DSnapshot = useRef<{ showFaces: boolean; hiddenEdges: boolean; showAxes: boolean } | null>(null)
 
+  useEffect(() => {
+    function openPractice() {
+      if (!model) return
+      setCenterPanel('practice')
+      setIsStepPlaying(false)
+      setUnfoldMode('closed')
+      measurement.deactivate()
+      stop()
+    }
+
+    window.addEventListener('geo-ai-open-practice', openPractice)
+    return () => window.removeEventListener('geo-ai-open-practice', openPractice)
+  }, [model, measurement, stop])
+
+  useEffect(() => {
+    function openTeacherWorkspace() {
+      if (!model) return
+      setCenterPanel('teacher-workspace')
+      setIsStepPlaying(false)
+      setUnfoldMode('closed')
+      measurement.deactivate()
+      stop()
+    }
+
+    window.addEventListener('geo-ai-open-teacher-workspace', openTeacherWorkspace)
+    return () => window.removeEventListener('geo-ai-open-teacher-workspace', openTeacherWorkspace)
+  }, [model, measurement, stop])
+
+  useEffect(() => {
+    setCenterPanel(null)
+  }, [model])
+
   const handlePrev = useCallback(() => { setShowAllSteps(false); prev() }, [prev])
   const handleNext = useCallback(() => { setShowAllSteps(false); next() }, [next])
 
@@ -150,6 +379,7 @@ export function GeoAIStudio() {
     const next2D = !is2D
     setIs2D(next2D)
     if (next2D) {
+      setUnfoldMode('closed')
       // Save snapshot then apply 2D presets
       pre2DSnapshot.current = {
         showFaces: settings.showFaces,
@@ -183,6 +413,12 @@ export function GeoAIStudio() {
   })
 
   const currentExperiment = getExperiment(model?.spec.shape)
+  const canUnfold = model?.spec.shape === 'cube' || model?.spec.shape === 'rectangular_prism'
+  const formulaParams = useMemo<Record<string, number | undefined>>(() => ({
+    a: activeExample?.params?.a ?? model?.spec.params.a,
+    b: activeExample?.params?.b ?? model?.spec.params.b,
+    h: activeExample?.params?.h ?? model?.spec.params.h,
+  }), [activeExample?.params, model?.spec.params])
   const { progress, isPlaying, currentFrame: experimentFrame, play, pause, reset: resetExperiment } = useVirtualExperiment(currentExperiment)
 
   const stepHighlight = useMemo(() => {
@@ -211,8 +447,8 @@ export function GeoAIStudio() {
         faces: experimentFrame.visibleFaces ?? [],
       }
     }
-    // Only filter geometry when user is actively navigating construction steps
-    if (mode !== 'construct') return undefined
+    // Only filter geometry after the user opens "Xây dựng hình".
+    if (mode !== 'construct' || constructSection !== 'shape') return undefined
     if (showAllSteps || !model) return undefined
     const step = steps[currentStep]
     if (!step) return undefined
@@ -222,7 +458,7 @@ export function GeoAIStudio() {
       edges: step.visibleEdges ?? [],
       faces: step.visibleFaces ?? [],
     }
-  }, [steps, currentStep, showAllSteps, model, mode, experimentFrame])
+  }, [steps, currentStep, showAllSteps, model, mode, constructSection, experimentFrame])
 
   // Auto-play: speak narration when step starts (or auto-play begins)
   useEffect(() => {
@@ -255,11 +491,15 @@ export function GeoAIStudio() {
     prevMeasureResult.current = measurement.result
     const { mode: mMode, points, result } = measurement
     if (mMode === 'distance' && points.length >= 2) {
-      speak(`Khoảng cách ${points[0]}${points[1]} bằng ${result.toFixed(3)} đơn vị.`)
+      speak(measuredEdgeExplanation(
+        `${points[0]}${points[1]}`,
+        result,
+        model?.spec.params.unit,
+      ))
     } else if (mMode === 'angle' && points.length >= 3) {
       speak(`Góc ${points[0]}${points[1]}${points[2]} bằng ${result.toFixed(1)} độ.`)
     }
-  }, [measurement.result, measurement.mode, measurement.points, speak])
+  }, [measurement.result, measurement.mode, measurement.points, model, speak])
 
   const handleAxisClick = useCallback((axis: 'X' | 'Y' | 'Z' | 'O') => {
     const messages: Record<'X' | 'Y' | 'Z' | 'O', string> = {
@@ -273,6 +513,41 @@ export function GeoAIStudio() {
 
   const handleObjectSelect = useCallback(
     (id: string, type: 'vertex' | 'edge' | 'face') => {
+      if (measurement.mode !== 'none' && type === 'edge') {
+        const edge = model?.edges.find((item) => item.id === id)
+        if (!edge) return
+        const from = model?.vertices[edge.from]?.position
+        const to = model?.vertices[edge.to]?.position
+        if (!from || !to) return
+
+        if (measurement.mode === 'distance') {
+          measurement.setSelectedPoints([edge.from, edge.to])
+          measurement.compute([from, to])
+          return
+        }
+
+        // Angle mode: click two edges that share a vertex. The common vertex
+        // becomes the angle's middle point.
+        if (measurement.points.length === 2) {
+          const [firstA, firstB] = measurement.points
+          const shared = [edge.from, edge.to].find((point) => point === firstA || point === firstB)
+          if (shared) {
+            const firstOuter = firstA === shared ? firstB : firstA
+            const secondOuter = edge.from === shared ? edge.to : edge.from
+            const ids = [firstOuter!, shared, secondOuter]
+            const positions = ids
+              .map((vertexId) => model?.vertices[vertexId]?.position)
+              .filter(Boolean) as Array<{ x: number; y: number; z: number }>
+            measurement.setSelectedPoints(ids)
+            if (positions.length === 3) measurement.compute(positions)
+            return
+          }
+        }
+
+        measurement.setSelectedPoints([edge.from, edge.to])
+        return
+      }
+
       // If measurement tool is active and it's a vertex, add to measurement points
       if (measurement.mode !== 'none' && type === 'vertex') {
         const pos = model?.vertices[id]?.position
@@ -427,6 +702,7 @@ export function GeoAIStudio() {
 
   const handlePlaySteps = useCallback(() => {
     setMode('construct')
+    setConstructSection('shape')
     setShowAllSteps(false)
     if (currentStep >= steps.length - 1) reset()
     setIsStepPlaying(true)
@@ -436,21 +712,27 @@ export function GeoAIStudio() {
 
   const handleRestartSteps = useCallback(() => {
     setMode('construct')
+    setConstructSection('shape')
     setShowAllSteps(false)
     reset()
     setIsStepPlaying(true)
   }, [reset])
 
   const handleConstructMode = useCallback(() => {
-    if (isStepPlaying) {
+    if (mode === 'construct' && constructSection === 'shape') {
       setIsStepPlaying(false)
+      stop()
+      setConstructSection(null)
+      setShowAllSteps(true)
+      setUnfoldMode('closed')
       return
     }
     setMode('construct')
+    setConstructSection('shape')
     setShowAllSteps(false)
     reset()
     setIsStepPlaying(true)
-  }, [isStepPlaying, reset])
+  }, [mode, constructSection, reset, stop])
 
   const TAB_ORDER: Mode[] = ['explore', 'construct', 'info', 'qa']
 
@@ -463,6 +745,9 @@ export function GeoAIStudio() {
     const cur = TAB_ORDER.indexOf(mode)
     const next = TAB_ORDER.indexOf(newMode)
     triggerSlide(next >= cur ? 'right' : 'left')
+    setIsStepPlaying(false)
+    setConstructSection(null)
+    if (newMode !== 'construct') setUnfoldMode('closed')
     setMode(newMode)
   }
 
@@ -553,41 +838,118 @@ export function GeoAIStudio() {
 
           {mode === 'construct' && !model && null}
           {mode === 'construct' && model && (
-            <div className="p-3 space-y-2">
-              <ConstructionSteps steps={steps} currentStep={currentStep} />
-              <StepNavigator
-                total={steps.length}
-                current={currentStep}
-                onPrev={handlePrev}
-                onNext={handleNext}
-                onShowAll={() => setShowAllSteps(true)}
-              />
-              {steps.length > 0 && (
+            <div className="p-3 space-y-3">
+              <section className="rounded-2xl border border-slate-800 bg-slate-950/35 p-3">
                 <button
                   type="button"
                   onClick={() => {
-                    if (isStepPlaying || isSpeaking) {
-                      setIsStepPlaying(false)
-                      stop()
-                    } else {
-                      stop()
-                      setShowAllSteps(false)
-                      reset()
-                      // Delay so viewer renders bước 1 before narration starts
-                      setTimeout(() => setIsStepPlaying(true), 200)
-                    }
+                    const isClosing = constructSection === 'shape'
+                    setConstructSection(isClosing ? null : 'shape')
+                    setUnfoldMode('closed')
+                    setIsStepPlaying(false)
+                    stop()
+                    setShowAllSteps(isClosing)
                   }}
-                  className={[
-                    'w-full flex items-center justify-center gap-2 py-1.5 rounded-lg text-xs font-medium transition-colors',
-                    isStepPlaying
-                      ? 'bg-red-900/30 text-red-300 border border-red-700/40 hover:bg-red-900/50'
-                      : 'bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700',
-                  ].join(' ')}
+                  className="mb-3 flex w-full items-start justify-between gap-2 text-left"
                 >
-                  <span>{isStepPlaying ? '⏹' : '🔊'}</span>
-                  {isStepPlaying ? 'Dừng giảng' : 'Nghe giảng'}
+                  <div>
+                    <h3 className="text-sm font-semibold text-white">1. Xây dựng hình</h3>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                      Theo dõi từng bước dựng các đỉnh, cạnh và mặt của hình.
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-300">
+                    {constructSection === 'shape'
+                      ? `Thu lại · ${steps.length > 0 ? `${currentStep + 1}/${steps.length}` : '0/0'}`
+                      : 'Mở'}
+                  </span>
                 </button>
-              )}
+
+                {constructSection === 'shape' && (
+                  <>
+                    <ConstructionSteps steps={steps} currentStep={currentStep} />
+                    <StepNavigator
+                      total={steps.length}
+                      current={currentStep}
+                      onPrev={handlePrev}
+                      onNext={handleNext}
+                      onShowAll={() => setShowAllSteps(true)}
+                    />
+                    {steps.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isStepPlaying || isSpeaking) {
+                            setIsStepPlaying(false)
+                            stop()
+                          } else {
+                            stop()
+                            setShowAllSteps(false)
+                            reset()
+                            // Delay so viewer renders bước 1 before narration starts
+                            setTimeout(() => setIsStepPlaying(true), 200)
+                          }
+                        }}
+                        className={[
+                          'w-full flex items-center justify-center gap-2 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                          isStepPlaying
+                            ? 'bg-red-900/30 text-red-300 border border-red-700/40 hover:bg-red-900/50'
+                            : 'bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700',
+                        ].join(' ')}
+                      >
+                        <span>{isStepPlaying ? '⏹' : '🔊'}</span>
+                        {isStepPlaying ? 'Dừng giảng' : 'Nghe giảng'}
+                      </button>
+                    )}
+                  </>
+                )}
+              </section>
+
+              <section className="rounded-2xl border border-indigo-500/25 bg-indigo-950/20">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConstructSection((current) => current === 'formula' ? null : 'formula')
+                    setShowAllSteps(true)
+                    setIsStepPlaying(false)
+                    stop()
+                  }}
+                  className="flex w-full items-start justify-between gap-2 p-3 text-left"
+                >
+                  <div>
+                    <h3 className="text-sm font-semibold text-white">2. Xây dựng công thức</h3>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                      Trải hình để xây dựng công thức diện tích xung quanh và toàn phần.
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[11px] font-medium text-indigo-200">
+                    {constructSection === 'formula' ? 'Đang mở' : 'Mở'}
+                  </span>
+                </button>
+
+                {constructSection === 'formula' && (
+                  <div className="border-t border-indigo-500/15 p-3 pt-0">
+                    <FormulaConstructionCard
+                      model={model}
+                      params={formulaParams}
+                      canUnfold={Boolean(canUnfold)}
+                      is2D={is2D}
+                      unfoldMode={unfoldMode}
+                      onUnfoldFull={() => {
+                        setSelectedObjectId(null)
+                        setIsAutoRotating(false)
+                        setUnfoldMode('full')
+                      }}
+                      onUnfoldStrip={() => {
+                        setSelectedObjectId(null)
+                        setIsAutoRotating(false)
+                        setUnfoldMode('strip')
+                      }}
+                      onFold={() => setUnfoldMode('closed')}
+                    />
+                  </div>
+                )}
+              </section>
             </div>
           )}
 
@@ -634,75 +996,75 @@ export function GeoAIStudio() {
         left={renderRightPanel()}
         center={
           <div id="geo-ai-viewer" className="relative h-full">
-            {model && (
-              <ViewerTopToolbar
-                containerId="geo-ai-viewer"
-                shapeName={getShape(model.spec.shape)?.nameVi ?? model.spec.shape}
-                measurementMode={measurement.mode}
-                measurementPoints={measurement.points}
-                measurementResult={measurement.result}
-                requiredPoints={measurement.requiredPoints}
-                onDistanceTool={() => { measurement.activateDistance(); setMode('measure') }}
-                onAngleTool={() => { measurement.activateAngle(); setMode('measure') }}
-                onDeactivateMeasure={measurement.deactivate}
-                onClearMeasure={measurement.clearPoints}
-                showFaces={settings.showFaces}
-                showAxes={settings.showAxes}
-                hiddenEdges={settings.hiddenEdges}
-                onToggleFaces={() => toggleSetting('showFaces')}
-                onToggleAxes={() => toggleSetting('showAxes')}
-                onToggleHiddenEdges={() => toggleSetting('hiddenEdges')}
-                onResetCamera={() => scene3dRef.current?.resetCamera()}
-                isStepPlaying={isStepPlaying}
-                onConstructMode={handleConstructMode}
-                constructModeActive={mode === 'construct'}
-                autoRotate={isAutoRotating}
-                onToggleRotate={() => setIsAutoRotating((v) => !v)}
-                disabled={false}
+            {model && centerPanel === 'practice' ? (
+              <PracticePanel
+                shape={model.spec.shape}
+                onClose={() => setCenterPanel(null)}
               />
-            )}
-            <Scene3D
-              ref={scene3dRef}
-              model={model}
-              autoFit
-              selectedObjectId={selectedObjectId}
-              onObjectSelect={handleObjectSelect}
-              unfoldProgress={unfoldProgress}
-              stepHighlight={stepHighlight}
-              stepVisibility={stepVisibility}
-              waterLevel={mode === 'experiment' ? (experimentFrame?.waterLevel ?? 0) : 0}
-              showAxes={settings.showAxes}
-              showAxisTicks={settings.showAxisTicks}
-              showGrid={settings.showGrid}
-              showLabels={settings.showLabels}
-              showFaces={settings.showFaces}
-              hiddenEdges={settings.hiddenEdges}
-              measurementMode={measurement.mode}
-              measurementPoints={measurement.points}
-              onAxisClick={handleAxisClick}
-              autoRotate={isAutoRotating}
-              givenParams={activeExample?.givenParams}
-              params={activeExample?.params}
-              unit={model?.spec?.params?.unit ?? 'cm'}
-              is2D={is2D}
-              onToggle2D={handleToggle2D}
-              showcaseItems={!model && !isDeepLinkPending ? showcaseItems : undefined}
-              onShowcaseClick={handleShowcaseClick}
-            />
-            {model && (
-              <div data-screenshot-ignore className="absolute bottom-10 left-4 md:left-1/2 md:-translate-x-1/2 flex items-center gap-2 bg-slate-900/80 backdrop-blur px-3 py-1.5 rounded-full">
-                <span className="text-xs text-slate-300 whitespace-nowrap">Trải phẳng</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={unfoldProgress}
-                  onChange={(e) => setUnfoldProgress(parseFloat(e.target.value))}
-                  className="w-28 accent-indigo-400"
-                  aria-label="Tiến độ trải phẳng hình"
+            ) : model && centerPanel === 'teacher-workspace' ? (
+              <TeacherWorkspacePanel
+                shapeKey={model.spec.shape}
+                onClose={() => setCenterPanel(null)}
+              />
+            ) : (
+              <>
+                {model && (
+                  <ViewerTopToolbar
+                    containerId="geo-ai-viewer"
+                    shapeName={getShape(model.spec.shape)?.nameVi ?? model.spec.shape}
+                    measurementMode={measurement.mode}
+                    measurementPoints={measurement.points}
+                    measurementResult={measurement.result}
+                    requiredPoints={measurement.requiredPoints}
+                    onDistanceTool={() => { measurement.activateDistance(); setMode('measure') }}
+                    onAngleTool={() => { measurement.activateAngle(); setMode('measure') }}
+                    onDeactivateMeasure={measurement.deactivate}
+                    onClearMeasure={measurement.clearPoints}
+                    showFaces={settings.showFaces}
+                    showAxes={settings.showAxes}
+                    hiddenEdges={settings.hiddenEdges}
+                    onToggleFaces={() => toggleSetting('showFaces')}
+                    onToggleAxes={() => toggleSetting('showAxes')}
+                    onToggleHiddenEdges={() => toggleSetting('hiddenEdges')}
+                    onResetCamera={() => scene3dRef.current?.resetCamera()}
+                    isStepPlaying={isStepPlaying}
+                    onConstructMode={handleConstructMode}
+                    constructModeActive={mode === 'construct'}
+                    autoRotate={isAutoRotating}
+                    onToggleRotate={() => setIsAutoRotating((v) => !v)}
+                    disabled={false}
+                  />
+                )}
+                <Scene3D
+                  ref={scene3dRef}
+                  model={model}
+                  autoFit
+                  selectedObjectId={selectedObjectId}
+                  onObjectSelect={handleObjectSelect}
+                  unfoldProgress={unfoldProgress}
+                  unfoldMode={activeUnfoldMode}
+                  stepHighlight={stepHighlight}
+                  stepVisibility={stepVisibility}
+                  waterLevel={mode === 'experiment' ? (experimentFrame?.waterLevel ?? 0) : 0}
+                  showAxes={settings.showAxes}
+                  showAxisTicks={settings.showAxisTicks}
+                  showGrid={settings.showGrid}
+                  showLabels={settings.showLabels}
+                  showFaces={settings.showFaces}
+                  hiddenEdges={settings.hiddenEdges}
+                  measurementMode={measurement.mode}
+                  measurementPoints={measurement.points}
+                  onAxisClick={handleAxisClick}
+                  autoRotate={isAutoRotating}
+                  givenParams={activeExample?.givenParams}
+                  params={activeExample?.params}
+                  unit={model?.spec?.params?.unit ?? 'cm'}
+                  is2D={is2D}
+                  onToggle2D={handleToggle2D}
+                  showcaseItems={!model && !isDeepLinkPending ? showcaseItems : undefined}
+                  onShowcaseClick={handleShowcaseClick}
                 />
-              </div>
+              </>
             )}
           </div>
         }

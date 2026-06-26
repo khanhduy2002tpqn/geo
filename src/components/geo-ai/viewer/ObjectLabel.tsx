@@ -44,7 +44,7 @@ export function ObjectLabel({ id, position, selected }: ObjectLabelProps) {
     <Html
       position={[position.x, position.y + 0.22, position.z]}
       center
-      zIndexRange={[10, 0]}
+      zIndexRange={[1000, 100]}
     >
       <span
         style={{

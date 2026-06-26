@@ -180,7 +180,11 @@ function MeasurementBadge({ mode, points, result, requiredPoints, onClear }: Mea
         ? `${points[0]}${points[1]} = ${result.toFixed(3)} a`
         : `∠${points[0]}${points[1]}${points[2]} = ${result.toFixed(1)}°`
       : remaining > 0
-        ? `Nhấp vào ${remaining} đỉnh nữa`
+        ? points.length === 0
+          ? mode === 'distance'
+            ? 'Chọn 1 cạnh hoặc 2 đỉnh'
+            : 'Chọn 2 cạnh chung đỉnh hoặc 3 đỉnh'
+          : `Nhấp vào ${remaining} đỉnh nữa`
         : 'Đang tính…'
 
   return (
@@ -286,8 +290,8 @@ export function ViewerTopToolbar({
 
         {/* Measurement */}
         <ToolBtn
-          label="Cạnh"
-          title="Đo khoảng cách (D)"
+          label="Đo cạnh"
+          title="Chọn một cạnh hoặc hai đỉnh để đo (D)"
           active={isDistanceActive}
           disabled={disabled}
           onClick={isDistanceActive ? onDeactivateMeasure : onDistanceTool}
@@ -295,8 +299,8 @@ export function ViewerTopToolbar({
           <IcoRuler />
         </ToolBtn>
         <ToolBtn
-          label="Góc"
-          title="Đo góc (A)"
+          label="Đo góc"
+          title="Chọn hai cạnh chung đỉnh hoặc ba đỉnh để đo (A)"
           active={isAngleActive}
           disabled={disabled}
           onClick={isAngleActive ? onDeactivateMeasure : onAngleTool}

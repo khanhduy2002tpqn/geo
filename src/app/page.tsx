@@ -1,5 +1,6 @@
 import { Suspense } from 'react'
 import { GeoAIStudio } from '@/components/geo-ai/GeoAIStudio'
+import { LearningAuthGate } from '@/components/geo-ai/auth/LearningAuthGate'
 
 export default function HomePage() {
   return (
@@ -10,7 +11,9 @@ export default function HomePage() {
         </div>
       }
     >
-      <GeoAIStudio />
+      <LearningAuthGate>
+        <GeoAIStudio />
+      </LearningAuthGate>
     </Suspense>
   )
 }

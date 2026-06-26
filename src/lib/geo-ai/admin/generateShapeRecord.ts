@@ -10,6 +10,7 @@ import { recordFromModel, shapeDataFromRecord } from '@/db/shapeRecord'
 import type { ShapeRecord } from '@/db/shapeRecord'
 import type { ExampleDef, ShapeData, ShapeLevel, ShapeType } from '@/lib/geo-ai/data/types'
 import type { GeometryModel } from '@/types/geo-ai'
+import { chatCompletionsUrl } from '@/lib/chatCompletionsUrl'
 
 export interface GenerateInput {
   prompt: string
@@ -50,7 +51,7 @@ async function generateSuggestedQuestions(shape: ShapeData, problem: string): Pr
   const baseUrl = process.env.OPENROUTER_BASE_URL ?? 'https://api.deepseek.com'
   const model = process.env.OPENROUTER_MODEL ?? 'deepseek-chat'
 
-  const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+  const response = await fetch(chatCompletionsUrl(baseUrl), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
