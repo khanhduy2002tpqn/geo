@@ -1,5 +1,5 @@
 'use client'
-import { Line, Html } from '@react-three/drei'
+import { Line, Html, Edges } from '@react-three/drei'
 import { useRef, useMemo, useEffect, useCallback, createContext, useContext } from 'react'
 import * as THREE from 'three'
 import type { GeometryModel, GeometryVertex, GeometryFace, UnfoldMode } from '@/types/geo-ai'
@@ -29,6 +29,8 @@ interface GeometryMeshProps {
   unit?: string
   accentColor?: string
   edgeWidth?: number
+  formulaFaceLabels?: 'total' | 'lateral' | null
+  volumeUnitCubeProgress?: number | null
 }
 
 // ---------------------------------------------------------------------------
@@ -309,6 +311,71 @@ function FaceMesh({
         />
       )}
     </group>
+  )
+}
+
+function faceFormulaNumber(
+  face: GeometryFace,
+  allVertices: Record<string, GeometryVertex>,
+  mode: 'total' | 'lateral',
+): string | null {
+  const role = cuboidFaceRole(face, allVertices)
+  const numberByRole: Record<CuboidFaceRole, string> = {
+    left: '(1)',
+    front: '(2)',
+    right: '(3)',
+    back: '(4)',
+    top: '(5)',
+    bottom: '(6)',
+  }
+  if (!role) return null
+  if (mode === 'lateral' && (role === 'top' || role === 'bottom')) return null
+  return numberByRole[role]
+}
+
+function FaceFormulaLabel({
+  label,
+  positions,
+}: {
+  label: string
+  positions: THREE.Vector3[]
+}) {
+  if (positions.length === 0) return null
+  const center = positions
+    .reduce((sum, point) => sum.add(point), new THREE.Vector3())
+    .multiplyScalar(1 / positions.length)
+
+  return (
+    <Html
+      position={[center.x, center.y, center.z + 0.08]}
+      center
+      zIndexRange={[900, 100]}
+    >
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minWidth: '28px',
+          height: '22px',
+          padding: '0 6px',
+          borderRadius: '999px',
+          border: '1px solid rgba(125, 211, 252, 0.75)',
+          background: 'rgba(2, 6, 23, 0.78)',
+          color: '#bfdbfe',
+          fontSize: '16px',
+          fontFamily: 'ui-monospace, monospace',
+          fontWeight: 900,
+          lineHeight: 1,
+          pointerEvents: 'none',
+          userSelect: 'none',
+          textShadow: '0 1px 4px #000',
+          boxShadow: '0 0 12px rgba(56, 189, 248, 0.25)',
+        }}
+      >
+        {label}
+      </span>
+    </Html>
   )
 }
 
@@ -824,6 +891,131 @@ function WaterFill3D({ model, waterLevel }: { model: GeometryModel; waterLevel: 
   )
 }
 
+function clampInt(value: number | undefined, fallback: number, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.max(min, Math.min(max, Math.round(value)))
+}
+
+function UnitCubeStack({
+  model,
+  params,
+  progress,
+  unit,
+}: {
+  model: GeometryModel
+  params: Record<string, number | undefined>
+  progress: number
+  unit: string
+}) {
+  const cubes = useMemo(() => {
+    const verts = Object.values(model.vertices)
+    if (verts.length === 0) return []
+
+    const xs = verts.map((v) => v.position.x)
+    const ys = verts.map((v) => v.position.y)
+    const zs = verts.map((v) => v.position.z)
+    const xMin = Math.min(...xs)
+    const xMax = Math.max(...xs)
+    const yMin = Math.min(...ys)
+    const yMax = Math.max(...ys)
+    const zMin = Math.min(...zs)
+    const zMax = Math.max(...zs)
+    const length = xMax - xMin
+    const height = yMax - yMin
+    const width = zMax - zMin
+    if (length <= 0 || height <= 0 || width <= 0) return []
+
+    const shape = model.spec.shape
+    const aCount = clampInt(params.a ?? model.spec.params.a, 4, 1, 7)
+    const bCount = shape === 'cube'
+      ? aCount
+      : clampInt(params.b ?? model.spec.params.b, 3, 1, 6)
+    const cCount = shape === 'cube'
+      ? aCount
+      : clampInt(params.h ?? model.spec.params.h, 3, 1, 6)
+    const dx = length / aCount
+    const dy = height / cCount
+    const dz = width / bCount
+    const total = aCount * bCount * cCount
+    const visibleCount = Math.max(1, Math.ceil(total * Math.max(0, Math.min(1, progress))))
+    const result: Array<{
+      key: string
+      position: [number, number, number]
+      scale: [number, number, number]
+      order: number
+      label?: string
+    }> = []
+
+    for (let layer = 0; layer < cCount; layer++) {
+      for (let row = 0; row < bCount; row++) {
+        for (let col = 0; col < aCount; col++) {
+          const order = layer * aCount * bCount + row * aCount + col
+          if (order >= visibleCount) continue
+          result.push({
+            key: `${layer}-${row}-${col}`,
+            position: [
+              xMin + dx * (col + 0.5),
+              yMin + dy * (layer + 0.5),
+              zMin + dz * (row + 0.5),
+            ],
+            scale: [dx * 0.86, dy * 0.86, dz * 0.86],
+            order,
+            label: order === 0 ? `1 ${unit || 'đv'}³` : undefined,
+          })
+        }
+      }
+    }
+
+    return result
+  }, [model, params, progress, unit])
+
+  if (cubes.length === 0) return null
+
+  return (
+    <group>
+      {cubes.map((cube) => (
+        <group key={cube.key} position={cube.position}>
+          <mesh renderOrder={4}>
+            <boxGeometry args={cube.scale} />
+            <meshStandardMaterial
+              color="#22c55e"
+              emissive="#064e3b"
+              emissiveIntensity={0.18}
+              transparent
+              opacity={0.34}
+              roughness={0.45}
+              depthWrite={false}
+            />
+            <Edges color="#86efac" lineWidth={1.2} />
+          </mesh>
+          {cube.label && (
+            <Html zIndexRange={[850, 100]} position={[0, cube.scale[1] * 0.72, 0]} center>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                whiteSpace: 'nowrap',
+                borderRadius: '999px',
+                border: '1px solid rgba(134, 239, 172, 0.65)',
+                background: 'rgba(2, 6, 23, 0.78)',
+                color: '#bbf7d0',
+                padding: '2px 7px',
+                fontSize: '12px',
+                fontFamily: 'ui-monospace, monospace',
+                fontWeight: 800,
+                pointerEvents: 'none',
+                userSelect: 'none',
+                textShadow: '0 1px 4px #000',
+              }}>
+                {cube.label}
+              </span>
+            </Html>
+          )}
+        </group>
+      ))}
+    </group>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -848,6 +1040,8 @@ export function GeometryMesh({
   unit = 'cm',
   accentColor,
   edgeWidth = 1.5,
+  formulaFaceLabels = null,
+  volumeUnitCubeProgress = null,
 }: GeometryMeshProps) {
   const { vertices, edges, faces, specialPoints, spec } = model
   const effectiveParams: Record<string, number | undefined> = params ?? (spec.params as Record<string, number | undefined>)
@@ -1308,6 +1502,12 @@ export function GeometryMesh({
               opacity={faceOpacity}
               showOutline={isUnfolding}
             />
+            {isUnfolding && formulaFaceLabels && unfoldedAmount > 0.85 && faceOpacity > 0.15 && (
+              (() => {
+                const label = faceFormulaNumber(face, vertices, formulaFaceLabels)
+                return label ? <FaceFormulaLabel label={label} positions={facePositions} /> : null
+              })()
+            )}
             {!isUnfolding && is2D && face.type === 'base' && <BaseHatching positions={facePositions} />}
           </group>
         )
@@ -1337,6 +1537,15 @@ export function GeometryMesh({
 
       {/* Water fill — experiment mode fill level */}
       {!isUnfolding && <WaterFill3D model={model} waterLevel={waterLevel} />}
+
+      {!isUnfolding && !is2D && isCuboid && volumeUnitCubeProgress !== null && volumeUnitCubeProgress > 0 && (
+        <UnitCubeStack
+          model={model}
+          params={effectiveParams}
+          progress={volumeUnitCubeProgress}
+          unit={unit}
+        />
+      )}
 
       {/* Edges */}
       {!isUnfolding && edges.map((edge) => {

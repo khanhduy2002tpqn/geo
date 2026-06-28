@@ -40,6 +40,8 @@ interface Scene3DProps {
   givenParams?: string[]
   params?: Record<string, number>
   unit?: string
+  formulaFaceLabels?: 'total' | 'lateral' | null
+  volumeUnitCubeProgress?: number | null
   is2D?: boolean
   onToggle2D?: () => void
   showcaseItems?: ShowcaseItem[]
@@ -287,6 +289,8 @@ export const Scene3D = forwardRef<Scene3DHandle, Scene3DProps>(function Scene3D(
   givenParams,
   params,
   unit,
+  formulaFaceLabels,
+  volumeUnitCubeProgress,
   is2D = false,
   onToggle2D,
   showcaseItems,
@@ -410,6 +414,8 @@ export const Scene3D = forwardRef<Scene3DHandle, Scene3DProps>(function Scene3D(
             givenParams={givenParams}
             params={params}
             unit={unit}
+            formulaFaceLabels={formulaFaceLabels}
+            volumeUnitCubeProgress={volumeUnitCubeProgress}
           />
         )}
       </Canvas>

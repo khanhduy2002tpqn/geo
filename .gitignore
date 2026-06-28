@@ -43,3 +43,5 @@ wrangler.toml
 # markdown docs — keep only README.md tracked
 *.md
 !README.md
+
+.vercel

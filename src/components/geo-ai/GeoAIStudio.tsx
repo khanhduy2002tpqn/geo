@@ -37,7 +37,7 @@ import VirtualExperiment from './educational/VirtualExperiment'
 import { DisplaySettingsPanel } from '@/components/geo-ai/viewer/DisplaySettings'
 import { GeometryInfoPanel } from '@/components/geo-ai/viewer/GeometryInfoPanel'
 import { MeasurementPanel } from '@/components/geo-ai/viewer/MeasurementPanel'
-import type { GeometryModel, GeometrySpec, StepVisibility, UnfoldMode } from '@/types/geo-ai'
+import type { ConstructionStep, GeometryModel, GeometrySpec, StepVisibility, UnfoldMode } from '@/types/geo-ai'
 import type { VirtualExperiment as VirtualExperimentType } from '@/types/geo-ai'
 
 const Scene3D = dynamic(
@@ -78,6 +78,8 @@ const TeacherWorkspacePanel = dynamic(
 
 type Mode = 'explore' | 'construct' | 'experiment' | 'qa' | 'info' | 'measure'
 type ConstructSection = 'shape' | 'formula' | null
+type FormulaKind = 'total' | 'lateral' | 'volume'
+type FormulaSurfaceKind = Exclude<FormulaKind, 'volume'>
 
 // Max time to hold the deep-link loading state while waiting for the
 // examples catalog before falling back to the homepage.
@@ -145,6 +147,8 @@ function FormulaConstructionCard({
   onUnfoldFull,
   onUnfoldStrip,
   onFold,
+  onFormulaFaceLabelsChange,
+  onVolumeUnitCubesChange,
 }: {
   model: GeometryModel
   params: Record<string, number | undefined>
@@ -154,16 +158,21 @@ function FormulaConstructionCard({
   onUnfoldFull: () => void
   onUnfoldStrip: () => void
   onFold: () => void
+  onFormulaFaceLabelsChange: (mode: 'total' | 'lateral' | null) => void
+  onVolumeUnitCubesChange: (progress: number | null) => void
 }) {
+  const [formulaKind, setFormulaKind] = useState<FormulaKind>('total')
+  const [currentFormulaStep, setCurrentFormulaStep] = useState(0)
   const shape = model.spec.shape
   if (shape !== 'cube' && shape !== 'rectangular_prism') return null
 
   const unit = model.spec.params.unit ?? 'cm'
   const a = params.a ?? model.spec.params.a
   const b = params.b ?? model.spec.params.b
-  const h = params.h ?? model.spec.params.h
+  const c = params.h ?? model.spec.params.h
   const isCube = shape === 'cube'
   const squareUnit = unit ? `${unit}²` : 'đv²'
+  const cubeUnit = unit ? `${unit}³` : 'đv³'
   const format = (value: number | undefined) => (
     typeof value === 'number' && Number.isFinite(value)
       ? value.toLocaleString('vi-VN', { maximumFractionDigits: 3 })
@@ -172,20 +181,146 @@ function FormulaConstructionCard({
 
   const lateralFormula = isCube
     ? 'Sxq = 4a²'
-    : 'Sxq = 2(a + b)h'
+    : 'Sxq = 2(a + b)c'
   const totalFormula = isCube
     ? 'Stp = 6a²'
-    : 'Stp = Sxq + 2ab = 2(ab + ah + bh)'
+    : 'Stp = Sxq + 2ab = 2(ab + ac + bc)'
+  const volumeFormula = isCube
+    ? 'V = a³'
+    : 'V = a · b · c'
   const lateralValue = isCube && typeof a === 'number'
     ? 4 * a * a
-    : !isCube && typeof a === 'number' && typeof b === 'number' && typeof h === 'number'
-      ? 2 * (a + b) * h
+    : !isCube && typeof a === 'number' && typeof b === 'number' && typeof c === 'number'
+      ? 2 * (a + b) * c
       : undefined
   const totalValue = isCube && typeof a === 'number'
     ? 6 * a * a
-    : !isCube && typeof a === 'number' && typeof b === 'number' && typeof h === 'number'
-      ? 2 * (a * b + a * h + b * h)
+    : !isCube && typeof a === 'number' && typeof b === 'number' && typeof c === 'number'
+      ? 2 * (a * b + a * c + b * c)
       : undefined
+  const volumeValue = isCube && typeof a === 'number'
+    ? a * a * a
+    : !isCube && typeof a === 'number' && typeof b === 'number' && typeof c === 'number'
+      ? a * b * c
+      : undefined
+  const sideRectangleSize = isCube
+    ? 'chiều rộng là a và chiều dài là 4a'
+    : 'chiều rộng là c và chiều dài là 2(a+b)'
+  const lateralFormulaSteps: ConstructionStep[] = [
+    {
+      index: 0,
+      description: 'Trải phẳng các mặt và bỏ 2 mặt đáy.',
+      narration: 'Trải phẳng các mặt và bỏ hai mặt đáy.',
+    },
+    {
+      index: 1,
+      description: isCube
+        ? 'Diện tích xung quanh của hình lập phương bằng diện tích hình chữ nhật được triển khai từ 4 mặt bên, có chiều rộng là a và chiều dài là 4a.'
+        : 'Diện tích xung quanh của hình hộp chữ nhật bằng diện tích của hình chữ nhật được triển khai từ các mặt bên (1), (2), (3), (4) có chiều rộng là c và chiều dài là 2(a+b).',
+      narration: isCube
+        ? 'Diện tích xung quanh của hình lập phương bằng diện tích hình chữ nhật được triển khai từ bốn mặt bên.'
+        : 'Diện tích xung quanh của hình hộp chữ nhật bằng diện tích hình chữ nhật được triển khai từ bốn mặt bên.',
+    },
+    {
+      index: 2,
+      description: `Từ đó ta có công thức: ${lateralFormula}.`,
+      narration: `Từ đó ta có công thức ${lateralFormula}.`,
+    },
+  ]
+  const totalFormulaSteps: ConstructionStep[] = [
+    {
+      index: 0,
+      description: 'Trải phẳng toàn bộ 6 mặt của hình.',
+      narration: 'Trải phẳng toàn bộ sáu mặt của hình.',
+    },
+    {
+      index: 1,
+      description: isCube
+        ? 'Diện tích toàn phần của hình lập phương bằng tổng diện tích 6 mặt vuông bằng nhau.'
+        : 'Diện tích toàn phần của hình hộp chữ nhật bằng tổng diện tích 2 mặt đáy, 2 mặt trước sau và 2 mặt bên.',
+      narration: isCube
+        ? 'Diện tích toàn phần của hình lập phương bằng tổng diện tích sáu mặt vuông bằng nhau.'
+        : 'Diện tích toàn phần của hình hộp chữ nhật bằng tổng diện tích các cặp mặt đối diện.',
+    },
+    {
+      index: 2,
+      description: `Từ đó ta có công thức: ${totalFormula}.`,
+      narration: `Từ đó ta có công thức ${totalFormula}.`,
+    },
+  ]
+  const volumeFormulaSteps: ConstructionStep[] = [
+    {
+      index: 0,
+      description: isCube
+        ? 'Xếp các hình lập phương nhỏ cạnh 1 đơn vị vào trong hình lập phương.'
+        : 'Xếp các hình lập phương nhỏ cạnh 1 đơn vị vào trong một hình hộp chữ nhật.',
+      narration: isCube
+        ? 'Ta xếp các khối lập phương đơn vị vào trong hình lập phương.'
+        : 'Ta xếp các khối lập phương đơn vị vào trong hình hộp chữ nhật.',
+    },
+    {
+      index: 1,
+      description: isCube
+        ? 'Đếm 1 khối lập phương đơn vị: cạnh 1 đơn vị nên thể tích của khối đó là 1 đơn vị khối.'
+        : 'Đếm 1 khối lập phương đơn vị: cạnh 1 đơn vị nên thể tích của khối đó là 1 đơn vị khối.',
+      narration: isCube
+        ? 'Ta bắt đầu bằng một khối lập phương đơn vị.'
+        : 'Ta bắt đầu bằng một khối lập phương đơn vị.',
+    },
+    {
+      index: 2,
+      description: isCube
+        ? `Đếm các khối còn lại theo lớp: mỗi lớp có a · a khối, có a lớp. Từ đó có công thức ${volumeFormula}.`
+        : `Đếm các khối còn lại theo lớp: mỗi lớp có a · b khối, có c lớp. Từ đó có công thức ${volumeFormula}.`,
+      narration: `Đếm các khối còn lại theo lớp, từ đó ta có công thức thể tích ${volumeFormula}.`,
+    },
+  ]
+  const formulaSteps = formulaKind === 'total'
+    ? totalFormulaSteps
+    : formulaKind === 'lateral'
+      ? lateralFormulaSteps
+      : volumeFormulaSteps
+  const isFirstFormulaStep = currentFormulaStep === 0
+  const isLastFormulaStep = currentFormulaStep === formulaSteps.length - 1
+  const volumeProgressForStep = (step: number) => (
+    step <= 0 ? 0 : step === 1 ? 0.001 : 1
+  )
+
+  function applyUnfoldForFormula(kind: FormulaSurfaceKind) {
+    if (!canUnfold || is2D) return
+    if (kind === 'total') onUnfoldFull()
+    else onUnfoldStrip()
+  }
+
+  function selectFormulaKind(kind: FormulaKind) {
+    const isChangingKind = kind !== formulaKind
+    setFormulaKind(kind)
+    setCurrentFormulaStep(0)
+    onFormulaFaceLabelsChange(null)
+    if (kind === 'volume') {
+      onFold()
+      onVolumeUnitCubesChange(volumeProgressForStep(0))
+    } else {
+      onVolumeUnitCubesChange(null)
+      if (isChangingKind && unfoldMode !== 'closed') {
+        onFold()
+      }
+    }
+  }
+
+  function goToFormulaStep(step: number) {
+    const nextStep = Math.min(Math.max(step, 0), formulaSteps.length - 1)
+    setCurrentFormulaStep(nextStep)
+    if (formulaKind === 'volume') {
+      onFormulaFaceLabelsChange(null)
+      onFold()
+      onVolumeUnitCubesChange(volumeProgressForStep(nextStep))
+      return
+    }
+    onVolumeUnitCubesChange(null)
+    onFormulaFaceLabelsChange(nextStep === 2 ? formulaKind : null)
+    applyUnfoldForFormula(formulaKind)
+  }
 
   return (
     <section className="rounded-2xl border border-indigo-500/25 bg-indigo-950/20 p-3">
@@ -193,40 +328,92 @@ function FormulaConstructionCard({
         <div>
           <h3 className="text-sm font-semibold text-white">2. Xây dựng công thức</h3>
           <p className="mt-1 text-xs leading-relaxed text-slate-400">
-            Trải hình để nhìn các mặt, sau đó cộng diện tích các phần bằng nhau.
+            Chọn công thức rồi quan sát hình trải phẳng hoặc khối đơn vị tương ứng.
           </p>
         </div>
         <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[11px] font-medium text-indigo-200">
-          Sxq / Stp
+          {formulaKind === 'total' ? 'Stp' : formulaKind === 'lateral' ? 'Sxq' : 'V'}
         </span>
       </div>
 
-      {canUnfold && (
-        <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="mt-3 grid gap-2">
+        <button
+          type="button"
+          onClick={() => selectFormulaKind('total')}
+          className={[
+            'rounded-xl border px-3 py-2 text-left transition',
+            formulaKind === 'total'
+              ? 'border-indigo-400/70 bg-indigo-600/20 text-white'
+              : 'border-slate-800 bg-slate-950/45 text-slate-300 hover:border-slate-600',
+          ].join(' ')}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-semibold">1. Công thức diện tích toàn phần</span>
+            <span className="rounded-full bg-slate-900/80 px-2 py-0.5 text-[11px] text-indigo-200">Stp</span>
+          </div>
+          <p className="mt-1 text-xs text-slate-400">
+            Trải đủ 6 mặt để thấy toàn bộ diện tích bề mặt.
+          </p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => selectFormulaKind('lateral')}
+          className={[
+            'rounded-xl border px-3 py-2 text-left transition',
+            formulaKind === 'lateral'
+              ? 'border-indigo-400/70 bg-indigo-600/20 text-white'
+              : 'border-slate-800 bg-slate-950/45 text-slate-300 hover:border-slate-600',
+          ].join(' ')}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-semibold">2. Công thức diện tích xung quanh</span>
+            <span className="rounded-full bg-slate-900/80 px-2 py-0.5 text-[11px] text-indigo-200">Sxq</span>
+          </div>
+          <p className="mt-1 text-xs text-slate-400">
+            Bỏ 2 mặt đáy, chỉ giữ các mặt bên (1), (2), (3), (4).
+          </p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => selectFormulaKind('volume')}
+          className={[
+            'rounded-xl border px-3 py-2 text-left transition',
+            formulaKind === 'volume'
+              ? 'border-emerald-400/70 bg-emerald-600/20 text-white'
+              : 'border-slate-800 bg-slate-950/45 text-slate-300 hover:border-slate-600',
+          ].join(' ')}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-semibold">3. Công thức thể tích</span>
+            <span className="rounded-full bg-slate-900/80 px-2 py-0.5 text-[11px] text-emerald-200">V</span>
+          </div>
+          <p className="mt-1 text-xs text-slate-400">
+            Xếp các khối lập phương đơn vị để thấy số khối bằng a · b · c.
+          </p>
+        </button>
+      </div>
+
+      {formulaKind !== 'volume' && canUnfold && (
+        <div className="mt-3">
           {unfoldMode === 'closed' ? (
-            <>
-              <button
-                type="button"
-                disabled={is2D}
-                onClick={onUnfoldFull}
-                className="rounded-lg border border-slate-700 bg-slate-950/70 px-2 py-2 text-xs font-medium text-slate-100 transition hover:border-indigo-400 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
-              >
-                Tách 6 mặt
-              </button>
-              <button
-                type="button"
-                disabled={is2D}
-                onClick={onUnfoldStrip}
-                className="rounded-lg border border-slate-700 bg-slate-950/70 px-2 py-2 text-xs font-medium text-slate-100 transition hover:border-indigo-400 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
-              >
-                Trải mặt bên
-              </button>
-            </>
+            <button
+              type="button"
+              disabled={is2D}
+              onClick={() => applyUnfoldForFormula(formulaKind)}
+              className="w-full rounded-lg border border-slate-700 bg-slate-950/70 px-2 py-2 text-xs font-medium text-slate-100 transition hover:border-indigo-400 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              {formulaKind === 'total' ? 'Trải phẳng 6 mặt' : 'Trải phẳng mặt bên'}
+            </button>
           ) : (
             <button
               type="button"
-              onClick={onFold}
-              className="col-span-2 rounded-lg border border-indigo-400/60 bg-indigo-600/80 px-2 py-2 text-xs font-semibold text-white transition hover:bg-indigo-500"
+              onClick={() => {
+                onFormulaFaceLabelsChange(null)
+                onFold()
+              }}
+              className="w-full rounded-lg border border-indigo-400/60 bg-indigo-600/80 px-2 py-2 text-xs font-semibold text-white transition hover:bg-indigo-500"
             >
               Ghép lại hình
             </button>
@@ -234,36 +421,99 @@ function FormulaConstructionCard({
         </div>
       )}
 
+      {formulaKind === 'volume' && (
+        <div className="mt-3">
+          <button
+            type="button"
+            disabled={is2D}
+            onClick={() => onVolumeUnitCubesChange(volumeProgressForStep(currentFormulaStep))}
+            className="w-full rounded-lg border border-emerald-500/50 bg-emerald-600/15 px-2 py-2 text-xs font-semibold text-emerald-100 transition hover:border-emerald-300 hover:bg-emerald-600/25 disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            Hiện khối lập phương đơn vị
+          </button>
+        </div>
+      )}
+
       {is2D && (
         <p className="mt-2 text-[11px] text-amber-300">
-          Tắt chế độ 2D để dùng trải phẳng.
+          Tắt chế độ 2D để dùng hoạt cảnh xây dựng công thức.
         </p>
       )}
 
+      <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-950/35">
+        <ConstructionSteps steps={formulaSteps} currentStep={currentFormulaStep} />
+        <StepNavigator
+          total={formulaSteps.length}
+          current={currentFormulaStep}
+          onPrev={() => goToFormulaStep(currentFormulaStep - 1)}
+          onNext={() => goToFormulaStep(currentFormulaStep + 1)}
+          onShowAll={() => goToFormulaStep(formulaSteps.length - 1)}
+        />
+      </div>
+
       <div className="mt-3 space-y-2 text-xs leading-relaxed text-slate-300">
-        <div className="rounded-xl bg-slate-950/55 p-2">
-          <p className="font-medium text-slate-100">1. Diện tích xung quanh</p>
-          <p className="mt-1">
-            {isCube
-              ? 'Có 4 mặt bên là 4 hình vuông cạnh a.'
-              : 'Bốn mặt bên tạo thành một hình chữ nhật lớn có chiều dài 2(a + b), chiều rộng h.'}
+        <div className="rounded-xl border border-indigo-500/20 bg-slate-950/55 p-3">
+          <p className="font-medium text-slate-100">
+            {formulaKind === 'total'
+              ? isFirstFormulaStep ? 'B1. Trải phẳng 6 mặt' : isLastFormulaStep ? 'B3. Công thức toàn phần' : 'B2. Cộng diện tích các mặt'
+              : formulaKind === 'lateral'
+                ? isFirstFormulaStep ? 'B1. Trải phẳng mặt bên' : isLastFormulaStep ? 'B3. Công thức xung quanh' : 'B2. Quy về diện tích hình chữ nhật'
+                : isFirstFormulaStep ? 'B1. Xếp khối đơn vị' : isLastFormulaStep ? 'B3. Đếm các khối còn lại' : 'B2. Đếm 1 khối đơn vị'}
           </p>
-          <p className="mt-1 font-mono text-indigo-200">{lateralFormula}</p>
-          {lateralValue !== undefined && (
-            <p className="mt-1 text-emerald-300">= {format(lateralValue)} {squareUnit}</p>
+          <p className="mt-1">
+            {formulaKind === 'total' && currentFormulaStep === 0 && 'Khi trải đủ 6 mặt, ta nhìn thấy toàn bộ phần bề mặt của hình.'}
+            {formulaKind === 'total' && currentFormulaStep === 1 && (
+              isCube
+                ? 'Có 6 mặt vuông bằng nhau, mỗi mặt có diện tích a².'
+                : 'Có 2 mặt diện tích ab, 2 mặt diện tích ac và 2 mặt diện tích bc.'
+            )}
+            {formulaKind === 'total' && currentFormulaStep === 2 && 'Diện tích toàn phần bằng tổng diện tích tất cả các mặt.'}
+            {formulaKind === 'lateral' && currentFormulaStep === 0 && 'Khi bỏ hai mặt đáy, phần còn lại chính là các mặt bên tạo nên diện tích xung quanh.'}
+            {formulaKind === 'lateral' && currentFormulaStep === 1 && (
+              <>
+                Các mặt bên (1), (2), (3), (4) ghép thành một hình chữ nhật có {sideRectangleSize}.
+              </>
+            )}
+            {formulaKind === 'lateral' && currentFormulaStep === 2 && 'Diện tích xung quanh bằng diện tích hình chữ nhật sau khi triển khai.'}
+            {formulaKind === 'volume' && currentFormulaStep === 0 && (
+              isCube
+                ? 'Ta xếp các hình lập phương nhỏ cạnh 1 đơn vị vào trong hình lập phương lớn.'
+                : 'Ta xếp các hình lập phương nhỏ cạnh 1 đơn vị vào trong chiếc hộp dạng hình hộp chữ nhật.'
+            )}
+            {formulaKind === 'volume' && currentFormulaStep === 1 && (
+              isCube
+                ? 'Trước hết hiển thị 1 khối lập phương đơn vị. Khối này có cạnh 1 đơn vị nên thể tích là 1 đơn vị khối.'
+                : 'Trước hết hiển thị 1 khối lập phương đơn vị. Khối này có cạnh 1 đơn vị nên thể tích là 1 đơn vị khối.'
+            )}
+            {formulaKind === 'volume' && currentFormulaStep === 2 && (
+              isCube
+                ? 'Sau đó đếm các khối còn lại theo từng lớp: mỗi lớp có a · a khối, có a lớp nên tổng số khối là a · a · a.'
+                : 'Sau đó đếm các khối còn lại theo từng lớp: mỗi lớp có a · b khối, có c lớp nên tổng số khối là a · b · c.'
+            )}
+          </p>
+          {currentFormulaStep === 2 && (
+            <>
+              <p className="mt-2 font-mono text-indigo-200">
+                {formulaKind === 'total' ? totalFormula : formulaKind === 'lateral' ? lateralFormula : volumeFormula}
+              </p>
+              {(formulaKind === 'total' ? totalValue : formulaKind === 'lateral' ? lateralValue : volumeValue) !== undefined && (
+                <p className="mt-1 text-emerald-300">
+                  = {format(formulaKind === 'total' ? totalValue : formulaKind === 'lateral' ? lateralValue : volumeValue)} {formulaKind === 'volume' ? cubeUnit : squareUnit}
+                </p>
+              )}
+            </>
           )}
         </div>
 
-        <div className="rounded-xl bg-slate-950/55 p-2">
-          <p className="font-medium text-slate-100">2. Diện tích toàn phần</p>
-          <p className="mt-1">
-            {isCube
-              ? 'Toàn phần gồm 6 mặt vuông bằng nhau.'
-              : 'Toàn phần bằng diện tích xung quanh cộng thêm hai mặt đáy.'}
-          </p>
-          <p className="mt-1 font-mono text-indigo-200">{totalFormula}</p>
-          {totalValue !== undefined && (
-            <p className="mt-1 text-emerald-300">= {format(totalValue)} {squareUnit}</p>
+        <div className="rounded-xl bg-slate-950/45 p-2 text-[11px] text-slate-400">
+          Công thức liên quan:{' '}
+          <span className="font-mono text-indigo-200">
+            {formulaKind === 'total' ? lateralFormula : formulaKind === 'lateral' ? totalFormula : volumeFormula}
+          </span>
+          {(formulaKind === 'total' ? lateralValue : formulaKind === 'lateral' ? totalValue : volumeValue) !== undefined && (
+            <span className="text-emerald-300">
+              {' '}= {format(formulaKind === 'total' ? lateralValue : formulaKind === 'lateral' ? totalValue : volumeValue)} {formulaKind === 'volume' ? cubeUnit : squareUnit}
+            </span>
           )}
         </div>
       </div>
@@ -284,6 +534,8 @@ export function GeoAIStudio() {
   const [unfoldMode, setUnfoldMode] = useState<UnfoldMode>('closed')
   const [activeUnfoldMode, setActiveUnfoldMode] = useState<Exclude<UnfoldMode, 'closed'>>('full')
   const [unfoldProgress, setUnfoldProgress] = useState(0)
+  const [formulaFaceLabels, setFormulaFaceLabels] = useState<'total' | 'lateral' | null>(null)
+  const [volumeUnitCubeProgress, setVolumeUnitCubeProgress] = useState<number | null>(null)
   const unfoldProgressRef = useRef(0)
   const [isStepPlaying, setIsStepPlaying] = useState(false)
   const [constructSection, setConstructSection] = useState<ConstructSection>(null)
@@ -327,6 +579,8 @@ export function GeoAIStudio() {
     setUnfoldProgress(0)
     setUnfoldMode('closed')
     setActiveUnfoldMode('full')
+    setFormulaFaceLabels(null)
+    setVolumeUnitCubeProgress(null)
     setConstructSection(null)
   }, [model])
 
@@ -345,6 +599,8 @@ export function GeoAIStudio() {
       if (!model) return
       setCenterPanel('practice')
       setIsStepPlaying(false)
+      setFormulaFaceLabels(null)
+      setVolumeUnitCubeProgress(null)
       setUnfoldMode('closed')
       measurement.deactivate()
       stop()
@@ -359,6 +615,8 @@ export function GeoAIStudio() {
       if (!model) return
       setCenterPanel('teacher-workspace')
       setIsStepPlaying(false)
+      setFormulaFaceLabels(null)
+      setVolumeUnitCubeProgress(null)
       setUnfoldMode('closed')
       measurement.deactivate()
       stop()
@@ -379,6 +637,8 @@ export function GeoAIStudio() {
     const next2D = !is2D
     setIs2D(next2D)
     if (next2D) {
+      setFormulaFaceLabels(null)
+      setVolumeUnitCubeProgress(null)
       setUnfoldMode('closed')
       // Save snapshot then apply 2D presets
       pre2DSnapshot.current = {
@@ -704,6 +964,9 @@ export function GeoAIStudio() {
     setMode('construct')
     setConstructSection('shape')
     setShowAllSteps(false)
+    setFormulaFaceLabels(null)
+    setVolumeUnitCubeProgress(null)
+    setUnfoldMode('closed')
     if (currentStep >= steps.length - 1) reset()
     setIsStepPlaying(true)
   }, [currentStep, steps.length, reset])
@@ -714,6 +977,9 @@ export function GeoAIStudio() {
     setMode('construct')
     setConstructSection('shape')
     setShowAllSteps(false)
+    setFormulaFaceLabels(null)
+    setVolumeUnitCubeProgress(null)
+    setUnfoldMode('closed')
     reset()
     setIsStepPlaying(true)
   }, [reset])
@@ -724,12 +990,17 @@ export function GeoAIStudio() {
       stop()
       setConstructSection(null)
       setShowAllSteps(true)
+      setFormulaFaceLabels(null)
+      setVolumeUnitCubeProgress(null)
       setUnfoldMode('closed')
       return
     }
     setMode('construct')
     setConstructSection('shape')
     setShowAllSteps(false)
+    setFormulaFaceLabels(null)
+    setVolumeUnitCubeProgress(null)
+    setUnfoldMode('closed')
     reset()
     setIsStepPlaying(true)
   }, [mode, constructSection, reset, stop])
@@ -747,7 +1018,11 @@ export function GeoAIStudio() {
     triggerSlide(next >= cur ? 'right' : 'left')
     setIsStepPlaying(false)
     setConstructSection(null)
-    if (newMode !== 'construct') setUnfoldMode('closed')
+    if (newMode !== 'construct') {
+      setFormulaFaceLabels(null)
+      setVolumeUnitCubeProgress(null)
+      setUnfoldMode('closed')
+    }
     setMode(newMode)
   }
 
@@ -845,6 +1120,8 @@ export function GeoAIStudio() {
                   onClick={() => {
                     const isClosing = constructSection === 'shape'
                     setConstructSection(isClosing ? null : 'shape')
+                    setFormulaFaceLabels(null)
+                    setVolumeUnitCubeProgress(null)
                     setUnfoldMode('closed')
                     setIsStepPlaying(false)
                     stop()
@@ -911,6 +1188,8 @@ export function GeoAIStudio() {
                   onClick={() => {
                     setConstructSection((current) => current === 'formula' ? null : 'formula')
                     setShowAllSteps(true)
+                    setFormulaFaceLabels(null)
+                    setVolumeUnitCubeProgress(null)
                     setIsStepPlaying(false)
                     stop()
                   }}
@@ -919,7 +1198,7 @@ export function GeoAIStudio() {
                   <div>
                     <h3 className="text-sm font-semibold text-white">2. Xây dựng công thức</h3>
                     <p className="mt-1 text-xs leading-relaxed text-slate-400">
-                      Trải hình để xây dựng công thức diện tích xung quanh và toàn phần.
+                      Trải hình hoặc xếp khối đơn vị để xây dựng công thức.
                     </p>
                   </div>
                   <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[11px] font-medium text-indigo-200">
@@ -945,7 +1224,13 @@ export function GeoAIStudio() {
                         setIsAutoRotating(false)
                         setUnfoldMode('strip')
                       }}
-                      onFold={() => setUnfoldMode('closed')}
+                      onFold={() => {
+                        setFormulaFaceLabels(null)
+                        setVolumeUnitCubeProgress(null)
+                        setUnfoldMode('closed')
+                      }}
+                      onFormulaFaceLabelsChange={setFormulaFaceLabels}
+                      onVolumeUnitCubesChange={setVolumeUnitCubeProgress}
                     />
                   </div>
                 )}
@@ -1059,6 +1344,8 @@ export function GeoAIStudio() {
                   givenParams={activeExample?.givenParams}
                   params={activeExample?.params}
                   unit={model?.spec?.params?.unit ?? 'cm'}
+                  formulaFaceLabels={formulaFaceLabels}
+                  volumeUnitCubeProgress={volumeUnitCubeProgress}
                   is2D={is2D}
                   onToggle2D={handleToggle2D}
                   showcaseItems={!model && !isDeepLinkPending ? showcaseItems : undefined}
